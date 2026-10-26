@@ -339,8 +339,12 @@
       </button>`);
     }
     while (cells.length % 7) cells.push('<div class="cday blank" aria-hidden="true"></div>');
-    const dayList = byDay[sel] || [];
-    const upcoming = ev.filter((e) => e.active && e.date > sel).slice(0, 6);
+    // One continuous agenda of every dated item, past and future. Tapping a day only
+    // jumps to it; everything before and after stays in the list.
+    const agendaDays = Object.keys(byDay);
+    if (!agendaDays.includes(sel)) agendaDays.push(sel);
+    agendaDays.sort();
+    const monthLabel = (d) => new Date(d + 'T12:00:00Z').toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' });
     const prev = mo === 1 ? `${y - 1}-12` : `${y}-${String(mo - 1).padStart(2, '0')}`;
     const next = mo === 12 ? `${y + 1}-01` : `${y}-${String(mo + 1).padStart(2, '0')}`;
     const agendaItem = (e) => (e.kind === 'task' ? taskCard(e.row, { expand: true }) : evRow(e));
@@ -364,9 +368,16 @@
         ${ym !== today.slice(0, 7) ? `<button type="button" data-calnav="${today.slice(0, 7)}">Today</button>` : ''}
         <button type="button" class="primary" id="subBtn">Subscribe in iPhone Calendar</button>
       </div>
-      <div class="spread daydetail" id="dayDetail"><h2>${fmtDate(sel, { weekday: 'long', month: 'long' })}</h2><button type="button" class="link" id="toMonth" style="margin-top:1.6rem">↑ Back to month</button></div>
-      ${dayList.length ? dayList.map(agendaItem).join('') : '<p class="muted small">Nothing on this day.</p>'}
-      ${upcoming.length ? `<h2>After that</h2>${upcoming.map((e) => (e.kind === 'task' ? taskCard(e.row) : evRow(e))).join('')}` : ''}
+      <h2>Everything, by date</h2>
+      <p class="small muted">Tap a day above to jump to it. Finished items stay in the list, grayed out.</p>
+      ${agendaDays.map((d, i) => {
+        const list = byDay[d] || [];
+        const newMonth = i === 0 || d.slice(0, 7) !== agendaDays[i - 1].slice(0, 7);
+        return `${newMonth ? `<div class="agmonth" id="agm-${d.slice(0, 7)}">${esc(monthLabel(d))}</div>` : ''}<div class="agday ${d === sel ? 'sel' : ''} ${d === today ? 'today' : ''} ${d < today ? 'past' : ''}" id="ag-${d}">
+          <div class="aghead"><span>${fmtDate(d, { weekday: 'long', month: 'long' })}${d === today ? ' <i class="tag">Today</i>' : ''}</span><button type="button" class="link" data-tomonth>↑ Month</button></div>
+          ${list.length ? list.map(agendaItem).join('') : '<p class="muted small">Nothing on this day.</p>'}
+        </div>`;
+      }).join('')}
     `;
   }
 
@@ -873,11 +884,11 @@
     on('#addFact', () => editFact(null));
     on('#addVisit', (e) => editVisit(null, { college_id: e.currentTarget.dataset.college || null }));
     on('#subBtn', () => openSubscribe());
-    on('#toMonth', () => window.scrollTo(0, 0));
+    $app.querySelectorAll('[data-tomonth]').forEach((b) => b.addEventListener('click', () => window.scrollTo(0, 0)));
     $app.querySelectorAll('[data-calnav]').forEach((b) => b.addEventListener('click', () => { sessionSet('calM', b.dataset.calnav); sessionSet('calD', ''); render(); }));
     $app.querySelectorAll('[data-day]').forEach((b) => b.addEventListener('click', () => {
       sessionSet('calD', b.dataset.day); render();
-      const d = document.getElementById('dayDetail');
+      const d = document.getElementById('ag-' + b.dataset.day);
       if (d) d.scrollIntoView({ block: 'start' });
     }));
     $app.querySelectorAll('[data-visit]').forEach((el) => el.addEventListener('click', () => editVisit(el.dataset.visit)));
