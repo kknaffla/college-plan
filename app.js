@@ -3,7 +3,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '2026.10.26-3'; // keep in sync with the ?v= tags in index.html
+  const APP_VERSION = '2026.10.26-4'; // keep in sync with the ?v= tags in index.html
   const CFG = window.APP_CONFIG || {};
   const TZ = CFG.TIME_ZONE || 'America/Detroit';
   const WEEK_START = CFG.WEEK_START || '2026-10-25';
@@ -380,6 +380,21 @@
         </div>`;
       }).join('')}
     `;
+  }
+
+  // Scroll the agenda so a day's heading sits just under the sticky top bar.
+  // Measured after two animation frames so Safari has finished laying out the new list.
+  function jumpToDay(day) {
+    const go = () => {
+      const el = document.getElementById('ag-' + day);
+      if (!el) return;
+      const bar = document.getElementById('topbar');
+      const offset = (bar && !bar.hidden ? bar.getBoundingClientRect().height : 0) + 8;
+      window.scrollTo(0, Math.max(0, el.getBoundingClientRect().top + window.pageYOffset - offset));
+    };
+    go();                                              // immediately
+    requestAnimationFrame(() => requestAnimationFrame(go)); // after layout settles (Safari)
+    setTimeout(go, 120);                               // fallback if frames are paused
   }
 
   // Live subscription: the calendar-feed Edge Function serves open deadlines to anyone holding
@@ -866,6 +881,7 @@
     }
     chrome(true);
     const h = location.hash || '#/';
+    if (h === '#/calendar' && render._last !== '#/calendar') { sessionSet('calM', ''); sessionSet('calD', ''); }
     let html;
     if (h.startsWith('#/college/')) html = viewCollege(h.slice(10));
     else html = ({ '#/week': viewWeek, '#/calendar': viewCalendar, '#/colleges': viewColleges, '#/scholarships': viewScholarships, '#/aid': viewAid, '#/profile': viewProfile, '#/more': viewMore, '#/admin': viewAdmin, '#/tasks': viewAllTasks, '#/visits': viewVisits, '#/offers': viewOffers }[h] || viewDashboard)();
@@ -889,9 +905,9 @@
     $app.querySelectorAll('[data-tomonth]').forEach((b) => b.addEventListener('click', () => window.scrollTo(0, 0)));
     $app.querySelectorAll('[data-calnav]').forEach((b) => b.addEventListener('click', () => { sessionSet('calM', b.dataset.calnav); sessionSet('calD', ''); render(); }));
     $app.querySelectorAll('[data-day]').forEach((b) => b.addEventListener('click', () => {
-      sessionSet('calD', b.dataset.day); render();
-      const d = document.getElementById('ag-' + b.dataset.day);
-      if (d) d.scrollIntoView({ block: 'start' });
+      const day = b.dataset.day;
+      sessionSet('calD', day); render();
+      jumpToDay(day);
     }));
     $app.querySelectorAll('[data-visit]').forEach((el) => el.addEventListener('click', () => editVisit(el.dataset.visit)));
     $app.querySelectorAll('[data-offer]').forEach((b) => b.addEventListener('click', () => editOffer(b.dataset.offer)));
