@@ -380,3 +380,6 @@ create policy family_docs_select on storage.objects for select to authenticated 
 create policy family_docs_insert on storage.objects for insert to authenticated with check (bucket_id = 'documents' and public.is_member());
 create policy family_docs_update on storage.objects for update to authenticated using (bucket_id = 'documents' and public.is_member()) with check (bucket_id = 'documents' and public.is_member());
 create policy family_docs_delete on storage.objects for delete to authenticated using (bucket_id = 'documents' and public.is_member());
+
+-- ===== from migrations/005_profile_tiles.sql =====
+alter table public.student_profile add column if not exists tiles jsonb;
