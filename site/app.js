@@ -3,7 +3,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '2026.10.27-1'; // keep in sync with the ?v= tags in index.html
+  const APP_VERSION = '2026.10.27-2'; // keep in sync with the ?v= tags in index.html
   const CFG = window.APP_CONFIG || {};
   const TZ = CFG.TIME_ZONE || 'America/Detroit';
   const WEEK_START = CFG.WEEK_START || '2026-10-25';
@@ -1069,7 +1069,7 @@
     const wsum = W.cost + W.outcomes + W.close + W.feel + Math.abs(W.size) || 1;
     const scores = cols.map((c, i) => Math.round(((W.cost * nCost[i] + W.outcomes * nOut[i] + W.close * nClose[i] + W.feel * nFeel[i] + Math.abs(W.size) * nSize[i]) / wsum) * 100));
     const ranked = cols.map((c, i) => ({ c, s: scores[i] })).sort((a, b) => b.s - a.s);
-    const short = (c) => SHORT_NAME[c.name] || c.name;
+    const short = (c) => TRACK_NAME[c.name] || SHORT_NAME[c.name] || c.name;
     const bars = (label, vals, fmt, higherBetter, note) => {
       const xs = vals.filter((v) => v != null); const max = xs.length ? Math.max(...xs) : 1;
       const best = xs.length ? (higherBetter ? Math.max(...xs) : Math.min(...xs)) : null;
@@ -1162,6 +1162,12 @@
       ${Array.isArray(f.sources) && f.sources.length ? `<div class="src">${f.sources.map((x) => link(x.url, x.label + (x.year ? ' (' + x.year + ')' : ''))).join('')}</div><p class="small muted">Facts as of ${esc(f.as_of || '')}. Check official pages before relying on a number.</p>` : ''}`;
   }
 
+  function currentTheme() { try { return localStorage.getItem('theme') || 'auto'; } catch (e) { return 'auto'; } }
+  function applyTheme(t) {
+    try { if (t === 'auto') localStorage.removeItem('theme'); else localStorage.setItem('theme', t); } catch (e) { /* private mode */ }
+    if (t === 'auto') document.documentElement.removeAttribute('data-theme'); else document.documentElement.setAttribute('data-theme', t);
+  }
+
   function viewMoney() {
     const h = location.hash;
     const tab = h === '#/aid' ? 'aid' : h === '#/offers' ? 'offers' : (sessionGet('moneyTab') || 'offers');
@@ -1184,6 +1190,9 @@
         <a href="#/brag">${icon('profile')}<span>Brag sheet</span></a>
         <a href="#/admin">${icon('more')}<span>Backup &amp; export</span></a>
       </div>
+      <h2>Appearance</h2>
+      <div class="seg wide themeseg" role="radiogroup" aria-label="Appearance">${[['auto', 'Match phone'], ['light', 'Light'], ['dark', 'Dark']].map(([k, l]) => `<button type="button" role="radio" aria-checked="${currentTheme() === k}" data-theme-pick="${k}" class="${currentTheme() === k ? 'on' : ''}">${l}</button>`).join('')}</div>
+      <p class="small muted">Saved on this device only, so everyone can choose their own.</p>
       <p class="small muted" style="margin-top:16px">Signed in as ${esc(state.session.user.email)}${state.me ? ' (' + esc(state.me.role) + ')' : ''}</p>
       <button id="signOut">Sign out</button>
       <p class="small muted" style="margin-top:16px">App version ${APP_VERSION}</p>`;
@@ -1508,6 +1517,7 @@
       r.addEventListener('input', () => { const lbl = r.nextElementSibling; lbl.textContent = r.dataset.w === 'size' ? (+r.value === 0 ? 'Any' : +r.value < 0 ? 'Smaller' : 'Larger') : r.value; });
       r.addEventListener('change', () => { const W = lsGet('cmpW', {}); W[r.dataset.w] = +r.value; lsSet('cmpW', W); render(); });
     });
+    $app.querySelectorAll('[data-theme-pick]').forEach((b) => b.addEventListener('click', () => { applyTheme(b.dataset.themePick); render(); }));
     $app.querySelectorAll('[data-who]').forEach((b) => b.addEventListener('click', () => { homeWhoChoice = b.dataset.who; render(); }));
     $app.querySelectorAll('[data-part]').forEach((b) => b.addEventListener('click', () => { const [cid, k] = b.dataset.part.split('|'); cyclePart(cid, k); }));
     $app.querySelectorAll('[data-ownerfilter]').forEach((a) => a.addEventListener('click', () => { sessionSet('tO', a.dataset.ownerfilter); sessionSet('tS', 'Open'); }));
