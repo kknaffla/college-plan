@@ -26,6 +26,11 @@
   }
   window.supabase = { createClient(){ return {
     from: q,
+    storage: { from(){ return {
+      async upload(path, file){ (window.__FILES__=window.__FILES__||{})[path]=file; return {data:{path}, error:null}; },
+      async createSignedUrl(path){ const f=(window.__FILES__||{})[path]; return {data:{signedUrl: f ? URL.createObjectURL(f) : 'about:blank#'+path}, error:null}; },
+      async remove(paths){ paths.forEach(p=>{ if(window.__FILES__) delete window.__FILES__[p]; }); return {data:[], error:null}; }
+    }; } },
     rpc(name){ const r=(DB.calendar_feed||[])[0]; if(r){ r.token=crypto.randomUUID().replace(/-/g,'')+crypto.randomUUID().replace(/-/g,''); } return Promise.resolve({data:r&&r.token, error:null}); },
     auth: {
       onAuthStateChange(cb){ listeners.push(cb); setTimeout(()=>cb('INITIAL_SESSION', window.__LOGGED_IN__ ? {user:me} : null),0); return {data:{subscription:{unsubscribe(){}}}}; },
