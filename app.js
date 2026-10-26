@@ -3,7 +3,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '2026.10.26-10'; // keep in sync with the ?v= tags in index.html
+  const APP_VERSION = '2026.10.26-11'; // keep in sync with the ?v= tags in index.html
   const CFG = window.APP_CONFIG || {};
   const TZ = CFG.TIME_ZONE || 'America/Detroit';
   const WEEK_START = CFG.WEEK_START || '2026-10-25';
@@ -56,6 +56,7 @@
     return new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: TZ });
   };
   const who = (uid) => (state.members.find((m) => m.user_id === uid) || {}).display_name || 'Someone';
+  const whoName = who;
   const collegeName = (id) => (state.colleges.find((c) => c.id === id) || {}).name || '';
   const isOpen = (t) => !CLOSED.has(t.status);
   const byDue = (a, b) => (a.due_date || '9999') .localeCompare(b.due_date || '9999') || (a.priority - b.priority) || a.title.localeCompare(b.title);
@@ -215,58 +216,101 @@
   }
 
   // ------------------------------------------------------------ views
+  // ------------------------------------------------------------ home
+  const APP_PARTS = [['application', 'App', 'Application'], ['essays', 'Essays', 'Essays'], ['recs', 'Recs', 'Recommendations'], ['transcript', 'Transc.', 'Transcript'], ['scores', 'Tests', 'Test scores'], ['fee', 'Fee', 'Fee']];
+  const TRACK_NAME = { 'University of Michigan': 'U-M', 'Michigan State University': 'MSU', 'Michigan Technological University': 'MTU', 'Northern Michigan University': 'NMU' };
+  const PART_STATES = ['missing', 'progress', 'done', 'na'];
+  const PART_LABEL = { missing: 'Missing', progress: 'In progress', done: 'Done', na: 'Not needed' };
+  const PART_MARK = { missing: '', progress: '◐', done: '✓', na: '—' };
+  function homeWho() {
+    const saved = sessionGet('homeWho');
+    if (saved) return saved;
+    return state.me && state.me.role === 'student' ? 'Lily' : 'Parent';
+  }
   function viewDashboard() {
     const today = todayISO();
-    const open = state.tasks.filter(isOpen).sort(byDue);
+    const who = homeWho();
+    const mine = (t) => who === 'Everyone' || t.owner === who || t.owner === 'Both';
+    const open = state.tasks.filter(isOpen).filter(mine).sort(byDue);
     const overdue = open.filter((t) => t.due_date && t.due_date < today);
-    const soon = open.filter((t) => t.due_date && t.due_date >= today && t.due_date <= addDays(today, 7));
-    // Scholarship and college deadlines the family is acting on count too.
+    const dueToday = open.filter((t) => t.due_date === today);
+    const w = weekWindow();
+    const weekAll = state.tasks.filter(mine).filter((t) => t.due_date && t.due_date >= w.start && t.due_date <= w.end);
+    const weekDone = weekAll.filter((t) => !isOpen(t)).length;
     const otherActive = allEvents().filter((e) => e.kind !== 'task' && e.kind !== 'visit' && e.active);
     const otherOverdue = otherActive.filter((e) => e.date < today);
-    const otherSoon = otherActive.filter((e) => e.date >= today && e.date <= addDays(today, 7));
     const countdown = otherActive.filter((e) => e.date >= today).slice(0, 4);
-    const total = state.tasks.length;
-    const doneN = total - open.length;
-    const pct = total ? Math.round((doneN / total) * 100) : 0;
-    const top3 = open.slice(0, 3);
-    const mine = state.me ? open.filter((t) => t.owner === (state.me.role === 'student' ? 'Lily' : 'Parent') || t.owner === 'Both').length : 0;
-    const activeColleges = state.colleges.filter((c) => !['Researching', 'Not applying'].includes(c.status) || c.priority <= 4);
-    const schPending = state.scholarships.filter((s) => ['Planning', 'In progress', 'Researching'].includes(s.status)).sort((a, b) => (a.deadline || '9999').localeCompare(b.deadline || '9999'));
+    // Today: overdue first, then due today, then the next items so there are always up to 3 actions.
+    const todayList = overdue.concat(dueToday);
+    const focus = (todayList.length ? todayList : open).slice(0, 3);
+    const moreToday = Math.max(0, todayList.length - focus.length);
+    // Next 7 days strip.
+    const days = []; for (let i = 0; i < 7; i++) days.push(addDays(today, i));
+    const evs = allEvents().filter((e) => e.active && (e.kind !== 'task' || mine(e.row)));
+    // Waiting on others: tasks marked waiting/blocked, plus recommenders who agreed but haven't submitted.
+    const waiting = state.tasks.filter(isOpen).filter((t) => t.status === 'Waiting on others' || (t.blocker && t.blocker.trim()))
+      .map((t) => ({ title: t.title, on: t.blocker || 'Others', since: t.updated_at, task: t.id }))
+      .concat(state.recommenders.filter((r) => ['Asked', 'Agreed'].includes(r.status)).map((r) => ({ title: (r.for_what || 'Recommendation'), on: r.name || r.role, since: r.asked_on ? r.asked_on + 'T12:00:00Z' : r.updated_at, rec: r.id })));
+    const applying = state.colleges.filter((c) => c.priority <= 4 && c.status !== 'Not applying').sort((a, b) => a.priority - b.priority);
+    const schNext = state.scholarships.filter((s) => SCH_ACTIVE.includes(s.status) && s.deadline && s.deadline >= today).sort((a, b) => a.deadline.localeCompare(b.deadline)).slice(0, 3);
+    const localOpen = state.scholarships.filter((s) => scopeOf(s) === 'Local' && ['Researching', 'Planning', 'In progress'].includes(s.status)).length;
+    const awarded = state.scholarships.filter((s) => s.status === 'Awarded').length;
     const recent = [].concat(
       state.tasks.map((r) => ({ t: r.updated_at, by: r.updated_by, label: r.title, kind: 'task', status: r.status })),
       state.colleges.map((r) => ({ t: r.updated_at, by: r.updated_by, label: r.name, kind: 'college', status: r.status })),
       state.scholarships.map((r) => ({ t: r.updated_at, by: r.updated_by, label: r.name, kind: 'scholarship', status: r.status }))
-    ).filter((r) => r.by).sort((a, b) => (b.t || '').localeCompare(a.t || '')).slice(0, 8);
-
+    ).filter((r) => r.by).sort((a, b) => (b.t || '').localeCompare(a.t || '')).slice(0, 3);
+    const nOver = overdue.length + otherOverdue.length;
+    const ready = readiness();
     return `
-      <h1>Hi${state.me ? ', ' + esc(state.me.display_name) : ''}</h1>
-      <div class="stats">
-        <div class="card stat ${overdue.length + otherOverdue.length ? 'bad' : ''}"><div class="n">${overdue.length + otherOverdue.length}</div><div class="l">Overdue</div></div>
-        <div class="card stat"><div class="n">${soon.length + otherSoon.length}</div><div class="l">Due in 7 days</div></div>
-        <div class="card stat"><div class="n">${mine}</div><div class="l">Open for you</div></div>
-        <div class="card stat ringstat">${ring(pct, pct + '% of tasks done')}<div class="l">${doneN} of ${total} tasks done</div></div>
+      <div class="spread"><h1>Hi${state.me ? ', ' + esc(state.me.display_name) : ''}</h1>
+        <div class="seg" role="tablist" aria-label="Whose tasks">${[['Lily', 'Lily'], ['Parent', state.me && state.me.role === 'parent' ? 'Me' : 'Parent'], ['Everyone', 'All']].map(([k, l]) => `<button type="button" data-who="${k}" class="${who === k ? 'on' : ''}">${esc(l)}</button>`).join('')}</div></div>
+      <div class="stats three">
+        <button type="button" class="card stat ${nOver ? 'bad' : ''}" data-scrollto="today"><div class="n">${nOver}</div><div class="l">Overdue</div></button>
+        <a class="card stat" href="#/week"><div class="n">${weekDone}<small>/${weekAll.length}</small></div><div class="l">Done this week</div><div class="bar"><i style="width:${weekAll.length ? Math.round((weekDone / weekAll.length) * 100) : 0}%"></i></div></a>
+        <a class="card stat" href="#/tasks" data-ownerfilter="${who === 'Everyone' ? 'All' : who}"><div class="n">${open.length}</div><div class="l">Open ${who === 'Everyone' ? 'tasks' : 'for ' + (who === 'Parent' ? 'Parent' : 'Lily')}</div></a>
       </div>
 
-      ${countdown.length ? `<h2>Countdown</h2><div class="countdown">${countdown.map((e) => { const d = daysUntil(e.date); return `<a class="card cd ${d <= 3 ? 'hot' : d <= 10 ? 'warm' : ''}" href="${e.kind === 'college' ? '#/college/' + e.id : '#/scholarships'}"><div class="cdn">${d === 0 ? 'Today' : d}</div><div class="cdl">${d === 0 ? '' : d === 1 ? 'day' : 'days'}</div><div class="cdt">${EV_ICON[e.kind]} ${esc(e.title)}</div><div class="small muted">${fmtDate(e.date)}${e.time ? ' · ' + esc(e.time) : ''}</div></a>`; }).join('')}</div>` : ''}
+      ${countdown.length ? `<div class="countdown">${countdown.map((e) => { const d = daysUntil(e.date); return `<a class="card cd ${d <= 3 ? 'hot' : d <= 10 ? 'warm' : ''}" href="${e.kind === 'college' ? '#/college/' + e.id : '#/scholarships'}"><div class="cdn">${d === 0 ? 'Today' : d}</div><div class="cdl">${d === 0 ? '' : d === 1 ? 'day' : 'days'}</div><div class="cdt">${EV_ICON[e.kind]} ${esc(e.kind === 'college' ? (SHORT_NAME[e.row.name] || e.row.name) + ' deadline' : e.title)}</div><div class="small muted">${fmtDate(e.date)}${e.time ? ' · ' + esc(e.time) : ''}</div></a>`; }).join('')}</div>` : ''}
 
-      <h2>Next three actions</h2>
-      ${top3.length ? top3.map((t) => taskCard(t, { expand: true })).join('') : '<p class="muted">Nothing open. 🎉</p>'}
+      <h2 id="today">Today</h2>
+      <div class="card todaycard">
+        ${focus.length ? focus.map((t) => taskCard(t, { expand: true })).join('') : '<p class="muted">Nothing due. 🎉</p>'}
+        ${moreToday ? `<p class="small"><a href="#/tasks">+ ${moreToday} more overdue or due today →</a></p>` : ''}
+        ${otherOverdue.length ? otherOverdue.map(evRow).join('') : ''}
+      </div>
+      <div class="weekstrip">${days.map((d) => { const n = evs.filter((e) => e.date === d).length; const hot = evs.some((e) => e.date === d && e.kind !== 'task'); return `<a href="#/calendar" data-jumpday="${d}" class="ws ${d === today ? 'today' : ''} ${hot ? 'hot' : ''}"><span class="wd">${fmtDate(d, { weekday: 'short', month: undefined, day: undefined })}</span><b>${new Date(d + 'T12:00:00Z').getUTCDate()}</b><span class="dots">${'•'.repeat(Math.min(n, 4))}${n > 4 ? '+' : ''}</span></a>`; }).join('')}</div>
 
-      ${overdue.length + otherOverdue.length > 0 ? `<h2>Overdue (${overdue.length + otherOverdue.length})</h2>${otherOverdue.map(evRow).join('')}${overdue.filter((t) => !top3.includes(t)).map((t) => taskCard(t)).join('') || (otherOverdue.length ? '' : '<p class="muted small">Shown above.</p>')}` : ''}
+      <div class="spread"><h2>Applications</h2><span class="small muted" style="margin-top:1.6rem">Tap a box to update</span></div>
+      <div class="card tracker">
+        <div class="trow thead"><span></span>${APP_PARTS.map(([, l, full]) => `<span title="${esc(full)}"><i class="sm">${l}</i><i class="lg">${full}</i></span>`).join('')}</div>
+        ${applying.map((c) => { const parts = c.app_parts || {}; const done = APP_PARTS.filter(([k]) => ['done', 'na'].includes(parts[k])).length; return `<div class="trow">
+          <a class="tname" href="#/college/${c.id}"><b><i class="sm">${esc(TRACK_NAME[c.name] || c.name)}</i><i class="lg">${esc(SHORT_NAME[c.name] || c.name)}</i></b><small>${c.deadline ? fmtDate(c.deadline, { weekday: undefined }) : esc(c.plan)} · ${done}/6</small></a>
+          ${APP_PARTS.map(([k, , full]) => { const v = parts[k] || 'missing'; return `<button type="button" class="tcell st-${v}" data-part="${c.id}|${k}" title="${esc(full)}: ${PART_LABEL[v]}" aria-label="${esc(c.name)} ${esc(full)}: ${PART_LABEL[v]}">${PART_MARK[v]}</button>`; }).join('')}
+        </div>`; }).join('')}
+        <div class="tlegend small muted"><span><i class="tcell st-done">✓</i>Done</span><span><i class="tcell st-progress">◐</i>In progress</span><span><i class="tcell st-missing"></i>Missing</span><span><i class="tcell st-na">—</i>Not needed</span></div>
+      </div>
 
-      <div class="spread"><h2>Due in the next 7 days</h2><a href="#/calendar" class="small" style="margin-top:1.6rem">Calendar →</a></div>
-      ${otherSoon.map(evRow).join('')}${soon.filter((t) => !top3.includes(t)).map((t) => taskCard(t)).join('') || (otherSoon.length ? '' : '<p class="muted small">Nothing else due this week.</p>')}
+      ${waiting.length ? `<h2>Waiting on others</h2><div class="card">${waiting.map((x) => `<div class="wrow" ${x.task ? `data-edit-task="${x.task}"` : `data-rec="${x.rec}"`}><div><b>${esc(x.on)}</b><div class="small">${esc(x.title)}</div></div><span class="chip warn">${x.since ? 'since ' + ago(x.since) : 'waiting'}</span></div>`).join('')}</div>` : ''}
 
-      <h2>Colleges</h2>
-      <div class="grid">${activeColleges.map(collegeCard).join('')}</div>
+      <div class="spread"><h2>Scholarships</h2><a href="#/scholarships" class="small" style="margin-top:1.6rem">All →</a></div>
+      <div class="card">
+        <div class="row" style="margin-bottom:6px"><button type="button" class="chip sc-local" data-scopejump="Local">★ ${localOpen} local to work on</button>${awarded ? `<span class="chip good">${awarded} awarded</span>` : ''}</div>
+        ${schNext.length ? schNext.map((s) => `<div class="wrow" data-sch="${s.id}"><div><b>${esc(s.name)}</b><div class="small muted">${scopeChip(s)} ${esc(s.amount || '')}</div></div>${dueChip(s.deadline, s.deadline_time, false)}</div>`).join('') : '<p class="muted small">No upcoming deadlines.</p>'}
+      </div>
 
-      <h2>Scholarship work pending</h2>
-      ${schPending.length ? schPending.slice(0, 5).map(schCard).join('') : '<p class="muted small">None pending.</p>'}
-      <p><a href="#/scholarships">All scholarships →</a></p>
+      <div class="spread"><h2>Lily’s readiness</h2><a href="#/profile" class="small" style="margin-top:1.6rem">Profile →</a></div>
+      <div class="readyrings">${ready.map((r) => `<a class="card rcell" href="#/profile" data-ptabjump="${r.tab}">${ring(Math.round((r.done / r.total) * 100), r.k + ' ' + r.center, r.center)}<div class="rl">${esc(r.k)}</div><div class="small muted">${esc(r.sub)}</div></a>`).join('')}</div>
 
-      <h2>Recent changes</h2>
-      ${recent.length ? `<ul class="feed">${recent.map((r) => `<li><b>${esc(who(r.by))}</b> updated ${esc(r.kind)} “${esc(r.label)}” — ${esc(r.status)} <span class="muted">· ${ago(r.t)}</span></li>`).join('')}</ul>` : '<p class="muted small">No edits yet.</p>'}
+      ${recent.length ? `<details class="recent"><summary>Recent changes</summary><ul class="feed">${recent.map((r) => `<li><b>${esc(who === 'x' ? '' : whoName(r.by))}</b> updated ${esc(r.kind)} “${esc(r.label)}” — ${esc(r.status)} <span class="muted">· ${ago(r.t)}</span></li>`).join('')}</ul></details>` : ''}
     `;
+  }
+  async function cyclePart(cid, key) {
+    const c = state.colleges.find((x) => x.id === cid); if (!c) return;
+    const parts = Object.assign({}, c.app_parts || {});
+    const cur = parts[key] || 'missing';
+    parts[key] = PART_STATES[(PART_STATES.indexOf(cur) + 1) % PART_STATES.length];
+    try { await save('colleges', { app_parts: parts }, cid); toast(`${SHORT_NAME[c.name] || c.name} · ${APP_PARTS.find(([k]) => k === key)[2]}: ${PART_LABEL[parts[key]]}`); render(); } catch (e) { /* toast shown */ }
   }
 
   function collegeProgress(c) {
@@ -1265,7 +1309,7 @@
     top.innerHTML = `
       <a href="#/" class="brand">${icon('colleges')}<span>College Plan</span></a>
       <span class="pagetitle">${esc(title)}</span>
-      <nav class="topnav" aria-label="Main">${TOPNAV.map(([href, l, ic]) => `<a href="${href}" class="${href === base ? 'on' : ''}" ${href === base ? 'aria-current="page"' : ''}>${icon(ic)}<span>${l}</span></a>`).join('')}</nav>
+      <nav class="topnav" aria-label="Main">${TOPNAV.map(([href, l, ic]) => `<a href="${href}" class="${href === base ? 'on' : ''}" ${href === base ? 'aria-current="page"' : ''} title="${l}" aria-label="${l}">${icon(ic)}<span>${l}</span></a>`).join('')}</nav>
       <span class="tb-right">${nextDeadlineChip()}
         <span class="syncwrap ${live ? 'live' : off ? 'off' : ''}" title="${live ? 'Live: changes sync between devices' : off ? 'Offline: reconnecting' : 'Connecting'}"><span class="sync" id="sync"></span><span class="synclbl">${live ? 'Live' : off ? 'Offline' : '…'}</span></span>
         <a class="menubtn ${base === '#/more' || base === '#/money' || base === '#/docs' ? 'on' : ''}" href="#/more" aria-label="Menu">${icon('menu')}</a></span>`;
@@ -1286,7 +1330,8 @@
     }
     chrome(true);
     const h = location.hash || '#/';
-    if (h === '#/calendar' && render._last !== '#/calendar') { sessionSet('calM', ''); sessionSet('calD', ''); }
+    const calJump = sessionGet('calJump');
+    if (h === '#/calendar' && render._last !== '#/calendar' && !calJump) { sessionSet('calM', ''); sessionSet('calD', ''); }
     let html;
     if (h.startsWith('#/college/')) html = viewCollege(h.slice(10));
     else html = ({ '#/week': viewWeek, '#/calendar': viewCalendar, '#/colleges': viewColleges, '#/scholarships': viewScholarships, '#/aid': viewMoney, '#/money': viewMoney, '#/profile': viewProfile, '#/more': viewMore, '#/admin': viewAdmin, '#/tasks': viewAllTasks, '#/visits': viewVisits, '#/offers': viewMoney, '#/docs': viewDocs, '#/brag': viewBrag }[h] || viewDashboard)();
@@ -1295,6 +1340,7 @@
     if (render._last === h) window.scrollTo(0, scroll); else window.scrollTo(0, 0);
     render._last = h;
     wire();
+    if (h === '#/calendar' && calJump) { sessionSet('calJump', ''); jumpToDay(calJump); }
   }
 
   function wire() {
@@ -1309,6 +1355,13 @@
     on('#subBtn', () => openSubscribe());
     on('#editMain', () => editMain());
     on('#editTiles', () => editTiles());
+    $app.querySelectorAll('[data-scrollto]').forEach((b) => b.addEventListener('click', () => { const el = document.getElementById(b.dataset.scrollto); if (el) el.scrollIntoView({ block: 'start' }); }));
+    $app.querySelectorAll('[data-who]').forEach((b) => b.addEventListener('click', () => { sessionSet('homeWho', b.dataset.who); render(); }));
+    $app.querySelectorAll('[data-part]').forEach((b) => b.addEventListener('click', () => { const [cid, k] = b.dataset.part.split('|'); cyclePart(cid, k); }));
+    $app.querySelectorAll('[data-ownerfilter]').forEach((a) => a.addEventListener('click', () => { sessionSet('tO', a.dataset.ownerfilter); sessionSet('tS', 'Open'); }));
+    $app.querySelectorAll('[data-scopejump]').forEach((b) => b.addEventListener('click', () => { sessionSet('schScope', b.dataset.scopejump); location.hash = '#/scholarships'; }));
+    $app.querySelectorAll('[data-ptabjump]').forEach((a) => a.addEventListener('click', () => sessionSet('profTab', a.dataset.ptabjump)));
+    $app.querySelectorAll('[data-jumpday]').forEach((a) => a.addEventListener('click', () => { const d = a.dataset.jumpday; sessionSet('calM', d.slice(0, 7)); sessionSet('calD', d); sessionSet('calJump', d); }));
     $app.querySelectorAll('[data-scope]').forEach((b) => b.addEventListener('click', () => { sessionSet('schScope', b.dataset.scope); render(); }));
     $app.querySelectorAll('[data-mtab]').forEach((b) => b.addEventListener('click', () => { sessionSet('moneyTab', b.dataset.mtab); if (location.hash !== '#/money') location.hash = '#/money'; else render(); }));
     on('#addAct', () => editActivity(null));
