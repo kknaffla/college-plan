@@ -3,7 +3,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '2026.10.27-3'; // keep in sync with the ?v= tags in index.html
+  const APP_VERSION = '2026.10.27-4'; // keep in sync with the ?v= tags in index.html
   const CFG = window.APP_CONFIG || {};
   const TZ = CFG.TIME_ZONE || 'America/Detroit';
   const WEEK_START = CFG.WEEK_START || '2026-10-25';
@@ -172,6 +172,116 @@
     const { error } = await sb.from(table).delete().eq('id', id);
     if (error) { toast('Delete failed: ' + error.message); throw error; }
     state[table] = state[table].filter((r) => r.id !== id);
+  }
+
+  // Reads pasted or shared text (an email, a note) and guesses a task: title, earliest upcoming date, time, link, category, college.
+  const QP_MON = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
+  function parseQuick(text, today) {
+    const raw = String(text || '').replace(/\r/g, '').trim().slice(0, 8000);
+    const lines = raw.split('\n').map((l) => l.trim()).filter(Boolean);
+    const HDR = /^(from|to|cc|bcc|sent|date|reply-to)\s*:/i;
+    const SKIP = (l) => HDR.test(l) || /^-+\s*(forwarded|original) message/i.test(l) || /^on .+ wrote:$/i.test(l) || /^begin forwarded message/i.test(l);
+    const subj = lines.find((l) => /^subject\s*:/i.test(l));
+    let title = subj ? subj.replace(/^subject\s*:\s*/i, '') : (lines.find((l) => !SKIP(l)) || '');
+    title = title.replace(/^((re|fwd?|fw)\s*:\s*)+/i, '').replace(/https?:\/\/\S+/g, '').replace(/\s+/g, ' ').trim();
+    if (title.length > 120) title = title.slice(0, 117).replace(/\s+\S*$/, '') + '…';
+    const um = raw.match(/https?:\/\/[^\s<>"')\]]+/i);
+    const url = um ? um[0].replace(/[.,;:]+$/, '') : null;
+    const body = lines.filter((l) => !SKIP(l)).join('\n');
+    const ty = +today.slice(0, 4);
+    const iso = (y, m, d) => (m >= 1 && m <= 12 && d >= 1 && d <= 31) ? `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}` : null;
+    const withYear = (y, m, d) => { if (y) return iso(y < 100 ? 2000 + y : y, m, d); const a = iso(ty, m, d); return a && a < today ? iso(ty + 1, m, d) : a; };
+    const found = [];
+    let mm;
+    const reIso = /\b(20\d\d)-(\d\d)-(\d\d)\b/g;
+    while ((mm = reIso.exec(body))) found.push(iso(+mm[1], +mm[2], +mm[3]));
+    const reMon = /\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sept?(?:ember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?\s+(\d{1,2})(?:st|nd|rd|th)?\b(?:,?\s+(20\d\d))?/gi;
+    while ((mm = reMon.exec(body))) found.push(withYear(mm[3] ? +mm[3] : 0, QP_MON[mm[1].slice(0, 3).toLowerCase()], +mm[2]));
+    const reNum = /\b(\d{1,2})\/(\d{1,2})(?:\/(\d{4}|\d{2}))?\b/g;
+    while ((mm = reNum.exec(body))) found.push(withYear(mm[3] ? +mm[3] : 0, +mm[1], +mm[2]));
+    const dates = found.filter((d) => d && d >= today).sort();
+    if (!dates.length) {
+      const wd = body.match(/\b(sun|mon|tues?|wed(?:nes)?|thu(?:rs)?|fri|sat(?:ur)?)day\b/i);
+      if (wd) {
+        const want = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'].indexOf(wd[1].slice(0, 3).toLowerCase());
+        const t0 = new Date(today + 'T12:00:00Z');
+        const ahead = ((want - t0.getUTCDay() + 7) % 7) || 7;
+        t0.setUTCDate(t0.getUTCDate() + ahead);
+        dates.push(t0.toISOString().slice(0, 10));
+      }
+    }
+    const tm = body.match(/\b(\d{1,2})(?::(\d\d))?\s*([ap])\.?\s?m\b\.?/i);
+    const time = tm && dates.length ? `${+tm[1]}:${tm[2] || '00'} ${tm[3].toUpperCase()}M` : null;
+    const low = raw.toLowerCase();
+    const category = /scholarship/.test(low) ? 'Scholarship'
+      : /fafsa|css profile|financial aid|fsa id|net price/.test(low) ? 'Financial aid'
+      : /essay|supplement|portfolio|slideroom/.test(low) ? 'Essays'
+      : /transcript|counselor|recommendation|school report/.test(low) ? 'School materials'
+      : /deadline|application|admission|apply/.test(low) ? 'Admissions' : 'Other';
+    const college = /michigan state|\bmsu\b|broad college/i.test(raw) ? 'Michigan State University'
+      : /michigan tech|\bmtu\b/i.test(raw) ? 'Michigan Technological University'
+      : /northern michigan|\bnmu\b/i.test(raw) ? 'Northern Michigan University'
+      : /university of michigan|\bu-m\b|\bumich\b|\bross\b|ann arbor/i.test(raw) ? 'University of Michigan' : null;
+    return { title: title || 'New item', due_date: dates[0] || null, due_time: time, source_url: url, category, college, notes: raw };
+  }
+
+  function openQuickAdd() {
+    const canPaste = !!(navigator.clipboard && navigator.clipboard.readText);
+    $sheet.innerHTML = `<form method="dialog" id="qaForm">
+      <h2 style="margin-top:0">Paste to add</h2>
+      <p class="small">Paste an email, a text, or a note. The app fills in a new task for you to check: title, date, time, link, college. Dated tasks show on the calendar.</p>
+      <label class="f" for="qaText">Text<textarea id="qaText" rows="8" placeholder="Paste here"></textarea></label>
+      <div class="actions">${canPaste ? '<button type="button" id="qaPaste">Paste from clipboard</button>' : '<div></div>'}
+        <div class="row"><button type="button" id="qaCancel">Cancel</button><button type="submit" class="primary" id="qaNext">Next</button></div></div>
+    </form>`;
+    const ta = $sheet.querySelector('#qaText');
+    $sheet.querySelector('#qaCancel').onclick = () => $sheet.close();
+    if (canPaste) $sheet.querySelector('#qaPaste').onclick = async () => { try { ta.value = await navigator.clipboard.readText(); } catch (e) { toast('Tap the box and paste instead'); ta.focus(); } };
+    $sheet.querySelector('#qaForm').onsubmit = (e) => {
+      e.preventDefault();
+      if (!ta.value.trim()) { toast('Paste some text first'); return; }
+      const q = parseQuick(ta.value, todayISO());
+      const col = q.college ? state.colleges.find((c) => c.name === q.college) : null;
+      $sheet.close();
+      editTask(null, { title: q.title, due_date: q.due_date, due_time: q.due_time, source_url: q.source_url, category: q.category, college_id: col ? col.id : null, notes: q.notes, owner: state.me && state.me.role === 'parent' ? 'Parent' : 'Lily' });
+      toast(q.due_date ? 'Check the date, then Save' : 'No date found. Add one to put it on the calendar');
+    };
+    if (!$sheet.open) $sheet.showModal();
+    ta.focus();
+  }
+
+  async function openShareSetup() {
+    const { data, error } = await sb.from('quick_add').select('token').eq('id', 1).maybeSingle();
+    if (error || !data) { toast('Could not load the sharing link.'); return; }
+    const url = `${CFG.SUPABASE_URL.replace(/\/$/, '')}/functions/v1/quick-add?key=${encodeURIComponent(data.token)}`;
+    $sheet.innerHTML = `<form method="dialog">
+      <h2 style="margin-top:0">Add from iPhone Share</h2>
+      <p class="small">Build a one-time Shortcut. Then select text in Mail, Messages, Notes, or Safari, tap <b>Share</b>, and choose <b>Add to College Plan</b>. It becomes a task owned by Both, ready for you to check.</p>
+      <label class="f">Your private link<input id="shUrl" readonly value="${esc(url)}"></label>
+      <p><button type="button" class="primary" id="shCopy">Copy link</button></p>
+      <ol class="small steps">
+        <li>Copy the link above. Open the <b>Shortcuts</b> app and tap <b>+</b>.</li>
+        <li>Name it <b>Add to College Plan</b>. Tap the <b>ⓘ</b> (or the name › Details) and turn on <b>Show in Share Sheet</b>.</li>
+        <li>At the top it says <b>Receive Any input from Share Sheet</b>. Tap <b>Any</b> and keep <b>Text</b>, <b>Rich text</b>, <b>URLs</b>, and <b>Safari web pages</b>. Set <b>If there’s no input</b> to <b>Ask For Text</b>.</li>
+        <li>Add the action <b>Get Contents of URL</b>. Paste the link as the URL. Tap the arrow: Method <b>POST</b>, Request Body <b>JSON</b>, add a <b>Text</b> field named <code>text</code>, and set its value to <b>Shortcut Input</b>.</li>
+        <li>Add the action <b>Show Notification</b> and set it to <b>Contents of URL</b>, so you see what was added.</li>
+        <li>Test it: select a sentence with a date in Notes, Share › <b>Add to College Plan</b>. Then check All tasks.</li>
+      </ol>
+      <p class="small muted">Anyone with this link can add tasks, so keep it in the family. Reset makes the old link stop working (update the Shortcut after).</p>
+      <div class="actions"><button type="button" class="danger" id="shReset">Reset link</button><button type="button" class="primary" id="shClose">Done</button></div>
+    </form>`;
+    $sheet.querySelector('#shClose').onclick = () => $sheet.close();
+    $sheet.querySelector('#shCopy').onclick = async () => {
+      const el = $sheet.querySelector('#shUrl');
+      try { await navigator.clipboard.writeText(el.value); toast('Link copied'); } catch (e) { el.select(); toast('Select the link and copy it'); }
+    };
+    $sheet.querySelector('#shReset').onclick = async () => {
+      if (!window.confirm('Reset the sharing link? Shortcuts using the old link will stop working until you paste the new one.')) return;
+      const r = await sb.rpc('rotate_quick_add_key');
+      if (r.error) { toast('Reset failed: ' + r.error.message); return; }
+      toast('New link created'); openShareSetup();
+    };
+    if (!$sheet.open) $sheet.showModal();
   }
 
   // ------------------------------------------------------------ task rendering
@@ -364,6 +474,7 @@
       <p class="muted small">${fmtDate(w.start)} – ${fmtDate(w.end)} · dates are ${esc(TZ.replace('_', ' '))} time</p>
       <div class="filters">
         <select id="weekOwner">${['All', 'Lily', 'Parent'].map((o) => `<option ${o === filter ? 'selected' : ''}>${o}</option>`).join('')}</select>
+        <button id="quickAdd">Paste to add</button>
         <button class="primary" id="addTask">+ Task</button>
       </div>
       ${blocked.length ? `<div class="alert bad"><b>${blocked.length} blocked:</b> ${blocked.map((t) => esc(t.title)).join('; ')}</div>` : ''}
@@ -431,6 +542,7 @@
       </div>
       <div class="row" style="margin:10px 0 0">
         ${ym !== today.slice(0, 7) ? `<button type="button" data-calnav="${today.slice(0, 7)}">Today</button>` : ''}
+        <button type="button" id="quickAdd">Paste to add</button>
         <button type="button" class="primary" id="subBtn">Subscribe in iPhone Calendar</button>
       </div>
       <h2>Everything, by date</h2>
@@ -1196,6 +1308,7 @@
         <a href="#/compare">${icon('colleges')}<span>Compare colleges <small>side by side, fit score</small></span></a>
         <a href="#/week">${icon('calendar')}<span>This week</span></a>
         <a href="#/tasks">${icon('home')}<span>All tasks</span></a>
+        <a href="#/more" id="shareSetup">${icon('calendar')}<span>Add from iPhone Share <small>send texts and emails to the app</small></span></a>
         <a href="#/visits">${icon('colleges')}<span>Campus visits</span></a>
         <a href="#/brag">${icon('profile')}<span>Brag sheet</span></a>
         <a href="#/admin">${icon('more')}<span>Backup &amp; export</span></a>
@@ -1216,7 +1329,7 @@
     if (st === 'Open') list = list.filter(isOpen); else if (st !== 'All') list = list.filter((t) => t.status === st);
     if (own !== 'All') list = list.filter((t) => t.owner === own);
     if (q) list = list.filter((t) => [t.title, t.notes, collegeName(t.college_id), t.category].join(' ').toLowerCase().includes(q));
-    return `<div class="spread"><h1>All tasks</h1><button class="primary" id="addTask">+ Task</button></div>
+    return `<div class="spread"><h1>All tasks</h1><div class="row"><button id="quickAdd">Paste to add</button><button class="primary" id="addTask">+ Task</button></div></div>
       <div class="filters">
         <input id="tQ" placeholder="Search" value="${esc(sessionGet('tQ') || '')}">
         <select id="tS">${['Open', 'All'].concat(TASK_STATUS).map((o) => `<option ${o === st ? 'selected' : ''}>${o}</option>`).join('')}</select>
@@ -1511,6 +1624,8 @@
     on('#addFact', () => editFact(null));
     on('#addVisit', (e) => editVisit(null, { college_id: e.currentTarget.dataset.college || null }));
     on('#subBtn', () => openSubscribe());
+    on('#quickAdd', () => openQuickAdd());
+    on('#shareSetup', (e) => { e.preventDefault(); openShareSetup(); });
     on('#editMain', () => editMain());
     on('#editTiles', () => editTiles());
     $app.querySelectorAll('[data-scrollto]').forEach((b) => b.addEventListener('click', () => { const el = document.getElementById(b.dataset.scrollto); if (el) el.scrollIntoView({ block: 'start' }); }));
