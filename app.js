@@ -3,7 +3,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '2026.10.26-13'; // keep in sync with the ?v= tags in index.html
+  const APP_VERSION = '2026.10.27-1'; // keep in sync with the ?v= tags in index.html
   const CFG = window.APP_CONFIG || {};
   const TZ = CFG.TIME_ZONE || 'America/Detroit';
   const WEEK_START = CFG.WEEK_START || '2026-10-25';
@@ -490,7 +490,7 @@
 
   function viewColleges() {
     const list = state.colleges.slice().sort((a, b) => a.priority - b.priority || a.name.localeCompare(b.name));
-    return `<div class="spread"><h1>Colleges</h1><button class="primary" id="addCollege">+ College</button></div>
+    return `<div class="spread"><h1>Colleges</h1><div class="row"><a class="btn primary" href="#/compare">Compare</a><button id="addCollege">+ Add</button></div></div>
       <div class="grid">${list.map(collegeCard).join('')}</div>`;
   }
 
@@ -520,6 +520,7 @@
       </div>
       <div class="spread"><h2>Tasks</h2><button class="primary" id="addTask" data-college="${c.id}" style="margin-top:1rem">+ Task</button></div>
       ${groups.length ? groups.map(([cat, l]) => `<h3 class="muted small" style="margin:1rem 0 .4rem;text-transform:uppercase;letter-spacing:.05em">${esc(cat)}</h3>${l.map((t) => taskCard(t, { expand: true, hideCollege: true })).join('')}`).join('') : '<p class="muted small">No tasks yet.</p>'}
+      ${factsSection(c)}
       ${sch.length ? `<h2>Scholarships</h2>${sch.map(schCard).join('')}` : ''}
       <div class="spread"><h2>Visits</h2><button id="addVisit" data-college="${c.id}" style="margin-top:1rem">+ Visit</button></div>
       ${vis.length ? vis.map(visitCard).join('') : '<p class="muted small">No visits logged.</p>'}
@@ -1029,6 +1030,138 @@
     if (w) w.location.href = r.data.signedUrl; else location.href = r.data.signedUrl;
   }
 
+  // ------------------------------------------------------------ compare
+  // Official facts live in colleges.facts (see migration 008). Picker, income band, and weights are
+  // per-device conveniences kept in localStorage — nothing personal is sent to the database.
+  const INCOME_BANDS = [['0-30000', '$0–30k'], ['30001-48000', '$30–48k'], ['48001-75000', '$48–75k'], ['75001-110000', '$75–110k'], ['110001-plus', '$110k+']];
+  const lsGet = (k, d) => { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } };
+  const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* private mode */ } };
+  const F = (c) => (c && c.facts) || {};
+  const pct1 = (v) => (v == null ? '—' : Math.round(v * 100) + '%');
+  const usd = (v) => (v == null || v === '' ? '—' : money(Number(v)));
+  const visitAvg = (cid) => { const vs = state.visits.filter((v) => v.college_id === cid && v.rating); return vs.length ? vs.reduce((s, v) => s + v.rating, 0) / vs.length : null; };
+  function netFor(c, band) {
+    const off = bestOffer(c.id);
+    if (off && num(off.cost_of_attendance)) return { v: offerMath(off).net, src: off.kind === 'Offer' ? 'your offer' : 'your estimate' };
+    const v = (F(c).net_price_by_income || {})[band];
+    if (v != null) return { v: Number(v), src: 'Scorecard' };
+    const a = (F(c).stats || {}).avg_net_price_all;
+    return a != null ? { v: Number(a), src: 'Scorecard avg' } : { v: null, src: '' };
+  }
+  function viewCompare() {
+    const all = state.colleges.slice().sort((a, b) => a.priority - b.priority);
+    const defaults = all.filter((c) => c.priority <= 4 && c.status !== 'Not applying').map((c) => c.id);
+    let picked = lsGet('cmpPick', defaults).filter((id) => all.some((c) => c.id === id));
+    if (!picked.length) picked = defaults;
+    const band = lsGet('cmpBand', '48001-75000');
+    const W = Object.assign({ cost: 3, outcomes: 3, close: 2, feel: 2, size: 0 }, lsGet('cmpW', {}));
+    const cols = picked.map((id) => all.find((c) => c.id === id));
+    const hasFacts = cols.some((c) => Object.keys(F(c)).length);
+    // Fit score: each factor normalized 0..1 across the picked colleges, then weighted.
+    const norm = (vals, higherBetter) => { const xs = vals.filter((v) => v != null); if (!xs.length) return vals.map(() => 0.5); const lo = Math.min(...xs), hi = Math.max(...xs); return vals.map((v) => (v == null ? 0.5 : hi === lo ? 1 : higherBetter ? (v - lo) / (hi - lo) : (hi - v) / (hi - lo))); };
+    const nets = cols.map((c) => netFor(c, band).v);
+    const outs = cols.map((c) => { const s = F(c).stats || {}; const g = s.grad_rate_6yr, e = s.median_earnings_10yr; return g == null && e == null ? null : (g || 0) * 100 + (e || 0) / 1000; });
+    const drive = cols.map((c) => (F(c).stats || {}).drive_hours ?? null);
+    const feel = cols.map((c) => visitAvg(c.id));
+    const sizes = cols.map((c) => (F(c).stats || {}).undergrad_enrollment ?? null);
+    const nCost = norm(nets, false), nOut = norm(outs, true), nClose = norm(drive, false), nFeel = norm(feel, true);
+    const nSize = W.size === 0 ? cols.map(() => 0.5) : norm(sizes, W.size > 0);
+    const wsum = W.cost + W.outcomes + W.close + W.feel + Math.abs(W.size) || 1;
+    const scores = cols.map((c, i) => Math.round(((W.cost * nCost[i] + W.outcomes * nOut[i] + W.close * nClose[i] + W.feel * nFeel[i] + Math.abs(W.size) * nSize[i]) / wsum) * 100));
+    const ranked = cols.map((c, i) => ({ c, s: scores[i] })).sort((a, b) => b.s - a.s);
+    const short = (c) => SHORT_NAME[c.name] || c.name;
+    const bars = (label, vals, fmt, higherBetter, note) => {
+      const xs = vals.filter((v) => v != null); const max = xs.length ? Math.max(...xs) : 1;
+      const best = xs.length ? (higherBetter ? Math.max(...xs) : Math.min(...xs)) : null;
+      return `<div class="cmprow"><div class="cmplabel">${esc(label)}${note ? `<small>${esc(note)}</small>` : ''}</div>${cols.map((c, i) => { const v = vals[i]; return `<div class="cmpbar"><span class="cn">${esc(short(c))}</span><span class="ct"><i style="width:${v == null ? 0 : Math.max(4, (v / max) * 100)}%" class="${v != null && v === best ? 'best' : ''}"></i></span><span class="cv">${v == null ? '—' : esc(fmt(v))}</span></div>`; }).join('')}</div>`;
+    };
+    const text = (label, get) => `<div class="cmptext"><div class="cmplabel">${esc(label)}</div><div class="cmpcols" style="--n:${cols.length}">${cols.map((c) => `<div><b>${esc(short(c))}</b><div class="small">${get(c) || '<span class="muted">—</span>'}</div></div>`).join('')}</div></div>`;
+    const list = (a) => (Array.isArray(a) && a.length ? '<ul class="tight">' + a.map((x) => `<li>${esc(x)}</li>`).join('') + '</ul>' : '');
+    return `<div class="spread"><h1>Compare</h1></div>
+      <p class="small muted">Pick 2–4 colleges. Your picks, income range, and weights stay on this device only.</p>
+      <div class="pickrow">${all.filter((c) => defaults.includes(c.id) || picked.includes(c.id)).map((c) => `<button type="button" class="pick2 ${picked.includes(c.id) ? 'on' : ''}" data-cmppick="${c.id}">${esc(short(c))}</button>`).join('')}</div>
+      ${all.some((c) => !defaults.includes(c.id) && !picked.includes(c.id)) ? `<details class="others"><summary class="small">Other colleges</summary><div class="pickrow">${all.filter((c) => !defaults.includes(c.id) && !picked.includes(c.id)).map((c) => `<button type="button" class="pick2" data-cmppick="${c.id}">${esc(short(c))}</button>`).join('')}</div></details>` : ''}
+      ${hasFacts ? '' : '<div class="alert">Official facts are being loaded. Charts fill in automatically once they’re added.</div>'}
+      <div class="card">
+        <h3>What matters most?</h3>
+        <div class="sliders">
+          ${[['cost', 'Low net price'], ['outcomes', 'Graduation & earnings'], ['close', 'Close to home'], ['feel', 'How visits felt']].map(([k, l]) => `<label class="sl"><span>${l}</span><input type="range" min="0" max="5" step="1" value="${W[k]}" data-w="${k}" aria-label="${l} weight"><b>${W[k]}</b></label>`).join('')}
+          <label class="sl"><span>Size</span><input type="range" min="-3" max="3" step="1" value="${W.size}" data-w="size" aria-label="Size preference"><b>${W.size === 0 ? 'Any' : W.size < 0 ? 'Smaller' : 'Larger'}</b></label>
+        </div>
+        <div class="fit">${ranked.map((r, i) => `<div class="fitrow"><span class="fr">${i + 1}</span><span class="fn">${esc(short(r.c))}</span><span class="ft"><i style="width:${r.s}%"></i></span><span class="fv">${r.s}</span></div>`).join('')}</div>
+        <p class="small muted" style="margin:6px 0 0">Fit score 0–100 compares only the colleges picked. Missing data counts as middle-of-the-pack.</p>
+      </div>
+      <div class="card">
+        <div class="spread"><h3>Net price per year</h3><label class="small">Family income <select id="cmpBand">${INCOME_BANDS.map(([k, l]) => `<option value="${k}" ${k === band ? 'selected' : ''}>${l}</option>`).join('')}</select></label></div>
+        ${bars('Net price', nets, (v) => money(v), false, 'what families in this income range paid after grants (your own estimate or offer is used when entered)')}
+        <div class="small muted">${cols.map((c) => { const n = netFor(c, band); return n.v == null ? '' : `${esc(short(c))}: ${esc(n.src)}`; }).filter(Boolean).join(' · ')}</div>
+      </div>
+      <div class="card">
+        ${bars('Cost of attendance (in-state)', cols.map((c) => (F(c).stats || {}).in_state_cost_of_attendance ?? null), (v) => money(v), false)}
+        ${bars('Graduation rate (6 yr)', cols.map((c) => (F(c).stats || {}).grad_rate_6yr ?? null), pct1, true)}
+        ${bars('Median earnings, 10 yrs after entry', cols.map((c) => (F(c).stats || {}).median_earnings_10yr ?? null), (v) => money(v), true)}
+        ${bars('Admit rate', cols.map((c) => (F(c).stats || {}).admit_rate ?? null), pct1, true, 'higher = easier to get in')}
+        ${bars('Undergraduates', sizes, (v) => Number(v).toLocaleString('en-US'), true, 'campus size')}
+        ${bars('Drive from Manistique', drive, (v) => v + ' hr', false)}
+        ${bars('Lily’s visit rating', feel, (v) => v.toFixed(1) + '★', true)}
+      </div>
+      <div class="card">
+        <h3>Business school</h3>
+        ${text('How first-years get in', (c) => esc((F(c).business || {}).admission_model || ''))}
+        ${text('Culture & feel', (c) => esc((F(c).business || {}).academic_feel || ''))}
+        ${text('Outcomes', (c) => esc((F(c).business || {}).recruiting_and_outcomes || ''))}
+        ${text('Signature programs', (c) => list((F(c).business || {}).signature_programs))}
+      </div>
+      <div class="card">
+        <h3>Housing &amp; campus life</h3>
+        ${text('First-year housing', (c) => esc([(F(c).housing || {}).first_year_requirement, (F(c).housing || {}).room_and_board].filter(Boolean).join(' · ')))}
+        ${text('Business living community', (c) => esc((F(c).housing || {}).business_living_community || ''))}
+        ${text('Setting', (c) => esc((F(c).campus || {}).setting || ''))}
+        ${text('Athletics', (c) => esc((F(c).campus || {}).athletics || ''))}
+        ${text('Traditions & identity', (c) => list((F(c).campus || {}).traditions))}
+      </div>
+      <p class="small muted">Sources: College Scorecard, NCES, and each college’s official pages — see each college’s page for links and data years.</p>`;
+  }
+  function factsSection(c) {
+    const f = F(c); if (!Object.keys(f).length) return '';
+    const b = f.business || {}, h = f.housing || {}, p = f.campus || {}, s = f.stats || {};
+    const li = (a) => (Array.isArray(a) && a.length ? '<ul class="tight">' + a.map((x) => `<li>${esc(x)}</li>`).join('') + '</ul>' : '');
+    const kv = (k, v) => (v == null || v === '' ? '' : `<div class="kv"><span>${esc(k)}</span><b>${typeof v === 'string' ? esc(v) : v}</b></div>`);
+    return `<h2>Key facts</h2>
+      <div class="card kvgrid">
+        ${kv('Undergraduates', s.undergrad_enrollment != null ? Number(s.undergrad_enrollment).toLocaleString('en-US') : null)}${kv('Admit rate', s.admit_rate != null ? pct1(s.admit_rate) : null)}
+        ${kv('6-yr graduation', s.grad_rate_6yr != null ? pct1(s.grad_rate_6yr) : null)}${kv('Cost of attendance (in-state)', s.in_state_cost_of_attendance != null ? usd(s.in_state_cost_of_attendance) : null)}
+        ${kv('Avg net price', s.avg_net_price_all != null ? usd(s.avg_net_price_all) : null)}${kv('Median earnings (10 yr)', s.median_earnings_10yr != null ? usd(s.median_earnings_10yr) : null)}
+        ${kv('Drive from Manistique', s.drive_hours != null ? `${s.drive_hours} hr${s.drive_miles ? ' · ' + s.drive_miles + ' mi' : ''}` : null)}${kv('Student–faculty', s.student_faculty_ratio || null)}
+      </div>
+      <h2>Culture &amp; housing</h2>
+      <div class="card">
+        <h3>${esc(b.school || 'Business school')}</h3>
+        ${b.admission_model ? `<p class="small"><b>Getting in:</b> ${esc(b.admission_model)}</p>` : ''}
+        ${b.class_size ? `<p class="small"><b>Size:</b> ${esc(b.class_size)}</p>` : ''}
+        ${b.academic_feel ? `<p class="small"><b>Feel:</b> ${esc(b.academic_feel)}</p>` : ''}
+        ${b.recruiting_and_outcomes ? `<p class="small"><b>Outcomes:</b> ${esc(b.recruiting_and_outcomes)}</p>` : ''}
+        ${b.how_it_fits_campus ? `<p class="small"><b>On campus:</b> ${esc(b.how_it_fits_campus)}</p>` : ''}
+        ${b.signature_programs && b.signature_programs.length ? `<div class="small"><b>Signature programs</b>${li(b.signature_programs)}</div>` : ''}
+        ${b.business_clubs && b.business_clubs.length ? `<div class="small"><b>Business clubs</b>${li(b.business_clubs)}</div>` : ''}
+      </div>
+      <div class="card">
+        <h3>Housing</h3>
+        ${h.first_year_requirement ? `<p class="small"><b>First year:</b> ${esc(h.first_year_requirement)}</p>` : ''}
+        ${h.room_and_board ? `<p class="small"><b>Room &amp; board:</b> ${esc(h.room_and_board)}</p>` : ''}
+        ${h.business_living_community ? `<p class="small"><b>Business community:</b> ${esc(h.business_living_community)}</p>` : ''}
+        ${h.application_opens ? `<p class="small"><b>Applying for housing:</b> ${esc(h.application_opens)}</p>` : ''}
+        ${h.residence_options && h.residence_options.length ? `<div class="small"><b>Options</b>${li(h.residence_options)}</div>` : ''}
+        ${h.notes ? `<p class="small muted">${esc(h.notes)}</p>` : ''}
+      </div>
+      <div class="card">
+        <h3>Campus life</h3>
+        ${[['Setting', p.setting], ['From Michigan', p.pct_in_state], ['Student orgs', p.student_orgs], ['Greek life', p.greek_life], ['Athletics', p.athletics], ['Winter', p.climate_note]].filter(([, v]) => v).map(([k, v]) => `<p class="small"><b>${k}:</b> ${esc(v)}</p>`).join('')}
+        ${p.traditions && p.traditions.length ? `<div class="small"><b>Traditions &amp; identity</b>${li(p.traditions)}</div>` : ''}
+      </div>
+      ${Array.isArray(f.sources) && f.sources.length ? `<div class="src">${f.sources.map((x) => link(x.url, x.label + (x.year ? ' (' + x.year + ')' : ''))).join('')}</div><p class="small muted">Facts as of ${esc(f.as_of || '')}. Check official pages before relying on a number.</p>` : ''}`;
+  }
+
   function viewMoney() {
     const h = location.hash;
     const tab = h === '#/aid' ? 'aid' : h === '#/offers' ? 'offers' : (sessionGet('moneyTab') || 'offers');
@@ -1044,6 +1177,7 @@
       <div class="card list-links menu-links" style="padding-top:0;padding-bottom:0">
         <a href="#/money">${icon('money')}<span>Money <small>cost, offers, aid forms</small></span></a>
         <a href="#/docs">${icon('docs')}<span>Documents <small>transcripts, essays, letters</small></span></a>
+        <a href="#/compare">${icon('colleges')}<span>Compare colleges <small>side by side, fit score</small></span></a>
         <a href="#/week">${icon('calendar')}<span>This week</span></a>
         <a href="#/tasks">${icon('home')}<span>All tasks</span></a>
         <a href="#/visits">${icon('colleges')}<span>Campus visits</span></a>
@@ -1283,13 +1417,14 @@
   // Ordered by how often each page is used.
   const NAV = [['#/', 'Home', 'home'], ['#/calendar', 'Calendar', 'calendar'], ['#/colleges', 'Colleges', 'colleges'], ['#/scholarships', 'Scholarships', 'scholarships'], ['#/profile', 'Profile', 'profile']];
   const TOPNAV = NAV.concat([['#/money', 'Money', 'money'], ['#/docs', 'Documents', 'docs'], ['#/more', 'More', 'more']]);
-  const PAGE_TITLE = { '#/': 'Home', '#/calendar': 'Calendar', '#/week': 'This week', '#/colleges': 'Colleges', '#/scholarships': 'Scholarships', '#/profile': 'Profile', '#/brag': 'Brag sheet', '#/money': 'Money', '#/offers': 'Money', '#/aid': 'Money', '#/docs': 'Documents', '#/visits': 'Visits', '#/tasks': 'All tasks', '#/admin': 'Backup', '#/more': 'More' };
+  const PAGE_TITLE = { '#/': 'Home', '#/calendar': 'Calendar', '#/week': 'This week', '#/colleges': 'Colleges', '#/scholarships': 'Scholarships', '#/profile': 'Profile', '#/brag': 'Brag sheet', '#/money': 'Money', '#/offers': 'Money', '#/aid': 'Money', '#/docs': 'Documents', '#/compare': 'Compare', '#/visits': 'Visits', '#/tasks': 'All tasks', '#/admin': 'Backup', '#/more': 'More' };
   const SHORT_NAME = { 'University of Michigan': 'U-M', 'Michigan State University': 'MSU', 'Michigan Technological University': 'Michigan Tech', 'Northern Michigan University': 'NMU' };
   function navBase(h) {
     if (h.startsWith('#/college/')) return '#/colleges';
     if (h === '#/week') return '#/calendar';
     if (h === '#/brag') return '#/profile';
     if (h === '#/offers' || h === '#/aid') return '#/money';
+    if (h === '#/compare') return '#/colleges';
     if (['#/visits', '#/tasks', '#/admin'].includes(h)) return '#/more';
     return h;
   }
@@ -1338,7 +1473,7 @@
     if (h === '#/calendar' && render._last !== '#/calendar' && !calJump) { sessionSet('calM', ''); sessionSet('calD', ''); }
     let html;
     if (h.startsWith('#/college/')) html = viewCollege(h.slice(10));
-    else html = ({ '#/week': viewWeek, '#/calendar': viewCalendar, '#/colleges': viewColleges, '#/scholarships': viewScholarships, '#/aid': viewMoney, '#/money': viewMoney, '#/profile': viewProfile, '#/more': viewMore, '#/admin': viewAdmin, '#/tasks': viewAllTasks, '#/visits': viewVisits, '#/offers': viewMoney, '#/docs': viewDocs, '#/brag': viewBrag }[h] || viewDashboard)();
+    else html = ({ '#/week': viewWeek, '#/calendar': viewCalendar, '#/colleges': viewColleges, '#/scholarships': viewScholarships, '#/aid': viewMoney, '#/money': viewMoney, '#/profile': viewProfile, '#/more': viewMore, '#/admin': viewAdmin, '#/tasks': viewAllTasks, '#/visits': viewVisits, '#/offers': viewMoney, '#/docs': viewDocs, '#/compare': viewCompare, '#/brag': viewBrag }[h] || viewDashboard)();
     const scroll = window.scrollY;
     $app.innerHTML = html;
     if (render._last === h) window.scrollTo(0, scroll); else window.scrollTo(0, 0);
@@ -1360,6 +1495,19 @@
     on('#editMain', () => editMain());
     on('#editTiles', () => editTiles());
     $app.querySelectorAll('[data-scrollto]').forEach((b) => b.addEventListener('click', () => { const el = document.getElementById(b.dataset.scrollto); if (el) el.scrollIntoView({ block: 'start' }); }));
+    $app.querySelectorAll('[data-cmppick]').forEach((b) => b.addEventListener('click', () => {
+      const all = state.colleges.slice().sort((x, y) => x.priority - y.priority);
+      let cur = lsGet('cmpPick', all.filter((c) => c.priority <= 4 && c.status !== 'Not applying').map((c) => c.id));
+      const id = b.dataset.cmppick;
+      if (cur.includes(id)) { if (cur.length <= 2) { toast('Keep at least 2 colleges.'); return; } cur = cur.filter((x) => x !== id); }
+      else { if (cur.length >= 4) { toast('Up to 4 at a time — remove one first.'); return; } cur = cur.concat(id); }
+      lsSet('cmpPick', cur); render();
+    }));
+    const band = $app.querySelector('#cmpBand'); if (band) band.addEventListener('change', () => { lsSet('cmpBand', band.value); render(); });
+    $app.querySelectorAll('[data-w]').forEach((r) => {
+      r.addEventListener('input', () => { const lbl = r.nextElementSibling; lbl.textContent = r.dataset.w === 'size' ? (+r.value === 0 ? 'Any' : +r.value < 0 ? 'Smaller' : 'Larger') : r.value; });
+      r.addEventListener('change', () => { const W = lsGet('cmpW', {}); W[r.dataset.w] = +r.value; lsSet('cmpW', W); render(); });
+    });
     $app.querySelectorAll('[data-who]').forEach((b) => b.addEventListener('click', () => { homeWhoChoice = b.dataset.who; render(); }));
     $app.querySelectorAll('[data-part]').forEach((b) => b.addEventListener('click', () => { const [cid, k] = b.dataset.part.split('|'); cyclePart(cid, k); }));
     $app.querySelectorAll('[data-ownerfilter]').forEach((a) => a.addEventListener('click', () => { sessionSet('tO', a.dataset.ownerfilter); sessionSet('tS', 'Open'); }));
