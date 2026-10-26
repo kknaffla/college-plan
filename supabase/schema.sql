@@ -389,3 +389,6 @@ alter table public.scholarships add column if not exists scope text;
 
 -- ===== from migrations/007_application_parts.sql =====
 alter table public.colleges add column if not exists app_parts jsonb;
+
+-- ===== from migrations/008_college_facts.sql =====
+alter table public.colleges add column if not exists facts jsonb;
