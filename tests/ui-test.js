@@ -42,7 +42,7 @@ const srv = http.createServer((req,res)=>{ let p = req.url.split('?')[0]; if(p==
     await p.screenshot({ path: `${SP}/ui-${name}-editor.png` });
     await p.click('#edForm button[type=submit]'); await p.waitForTimeout(300);
     console.log(name,'task added', await p.locator('text=Test task').count());
-    for (const r of ['scholarships','aid','profile','admin','more']) { await p.goto('http://localhost:8123/#/'+r); await p.waitForTimeout(250); await p.screenshot({ path: `${SP}/ui-${name}-${r}.png`, fullPage: true }); const w = await p.evaluate(()=>document.documentElement.scrollWidth); if (w>vp.width) console.log('OVERFLOW',name,r,w); }
+    for (const r of ['calendar','visits','offers','scholarships','aid','profile','admin','more']) { await p.goto('http://localhost:8123/#/'+r); await p.waitForTimeout(250); await p.screenshot({ path: `${SP}/ui-${name}-${r}.png`, fullPage: true }); const w = await p.evaluate(()=>document.documentElement.scrollWidth); if (w>vp.width) console.log('OVERFLOW',name,r,w); }
     await ctx.close();
   }
   console.log('errors:', errors);

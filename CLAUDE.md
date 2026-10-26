@@ -13,7 +13,7 @@ This is a private college-application dashboard for **Kevin (parent)** and his d
 - `site/` is a static single-page app with **no build step**: `index.html`, `app.js` (vanilla JS with hash routing), `styles.css`, `config.js`, the manifest, and the icons.
   - It loads `@supabase/supabase-js@2.45.4` as a UMD build from jsdelivr.
   - `config.js` holds the Supabase URL and the **anon/publishable** key. That key is designed to be public. **Never put the `service_role` key anywhere in `site/`.**
-- `supabase/schema.sql` defines the tables `members`, `colleges`, `tasks`, `scholarships` and `profile_facts`.
+- `supabase/schema.sql` defines the tables `members`, `colleges`, `tasks`, `scholarships`, `profile_facts`, `visits` and `aid_offers` (the last two added by `migrations/001_visits_and_aid_offers.sql`).
   - The RLS function `is_member()` controls access. Only rows in `members` can read or write, and the app can't add members.
   - A trigger `stamp_row()` sets `updated_at` and `updated_by`.
   - The tables are published to realtime. The file is idempotent and safe to re-run.
@@ -21,7 +21,10 @@ This is a private college-application dashboard for **Kevin (parent)** and his d
 - **Hosting:** GitHub Pages serves `site/` over HTTPS at https://kknaffla.github.io/college-plan/ (repo `kknaffla/college-plan`). Pages builds from the `gh-pages` branch, which holds only `site/`. After committing a change to `site/` on `main`, deploy with `git push origin main && git subtree push --prefix site origin gh-pages`. The gh CLI lives at `~/.local/bin/gh`; its token lacks the `workflow` scope, so don't add GitHub Actions workflows without `gh auth refresh -s workflow`. Free Pages requires a **public** repo, so the repo must contain no family data: keep `seed.sql` and `tests/fixtures/` out of it.
 - **Auth:** Supabase email + password. **Public sign-ups are disabled.** Kevin creates the users in the Supabase dashboard, then inserts them into `members` (README step 5). Password resets redirect back to the Pages URL.
 - **Dates:** dates are stored as `date` and times as text ("8:00 AM"). The time zone is America/Detroit. `todayISO()` in `app.js` uses Intl with that time zone.
-- **This Week window:** `WEEK_START` / `WEEK_END` in `config.js` (currently Oct 25 – Nov 1, 2026).
+- **This Week window:** `WEEK_START` / `WEEK_END` in `config.js` (Oct 25 – Nov 1, 2026); after that window the Week view rolls to the next 7 days from today.
+- **Pages:** Home (countdown, progress ring, deadlines from tasks + colleges + scholarships), Calendar (wall-calendar month view + Week toggle, .ics export with day-before alerts), Colleges, Scholarships, Cost & offers (net-price chart; estimate vs official offer per college), Visits (log with star ratings), Financial aid, All tasks, Profile, Backup.
+- **Applying to:** U-M, MSU, Michigan Tech, NMU. Don't add scholarships limited to other colleges.
+- **Local test without Node:** serve `site/` with a stub `config.js` and `tests/mock-supabase.js` + `tests/fixtures/seed.json` in place of the CDN script (same approach as `tests/ui-test.js`).
 
 ## Content and accuracy rules (from the build brief)
 - Every deadline shows its official source link and a "verified on" date. If `verified_on` is null, the app shows **"Unverified — confirm with school."** Verify against the official page before setting `verified_on`.
@@ -38,7 +41,8 @@ This is a private college-application dashboard for **Kevin (parent)** and his d
   - Anon is denied.
   - A member can't add members.
 - ✅ The UI was tested headless with a mocked Supabase client at phone (390 px) and desktop widths: status change, checklist, add task, ED warning, no horizontal overflow, no JS errors.
-- ⬜ **Not yet deployed.** See HANDOFF.md for the deployment checklist.
+- ✅ Deployed Oct 25, 2026. Supabase project `qienshgabtzngzerjkrl`; members Kevin (parent) and Lily (student).
+- ✅ Oct 26: added calendar, visits, cost & offers, .ics export; migration 001 applied.
 - ⬜ Live two-device sync hasn't been tested yet (it needs the real Supabase project).
 - ⬜ MSU dates aren't verified: their deadlines page showed no dates when it was checked.
 
