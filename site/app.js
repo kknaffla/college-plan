@@ -3,7 +3,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '2026.10.26-6'; // keep in sync with the ?v= tags in index.html
+  const APP_VERSION = '2026.10.26-7'; // keep in sync with the ?v= tags in index.html
   const CFG = window.APP_CONFIG || {};
   const TZ = CFG.TIME_ZONE || 'America/Detroit';
   const WEEK_START = CFG.WEEK_START || '2026-10-25';
@@ -646,7 +646,20 @@
   const sortedActs = () => state.activities.slice().sort((a, b) => a.sort - b.sort || String(a.organization).localeCompare(String(b.organization)));
   const sortedHonors = () => state.honors.slice().sort((a, b) => a.sort - b.sort);
   const actHours = (a) => Math.round(num(a.hours_per_week) * num(a.weeks_per_year));
-  const gradeChips = (g) => (g ? g.split(',').map((x) => `<span class="chip">${esc(x.trim() === 'Post-graduate' ? 'PG' : 'Gr ' + x.trim())}</span>`).join('') : '<span class="chip warn">Grades?</span>');
+  // One compact pill: "Grades 10–12", "Grades 9, 11", "Grades 11–12 + PG".
+  function gradeLabel(g) {
+    const parts = String(g || '').split(',').map((x) => x.trim()).filter(Boolean);
+    const nums = parts.filter((x) => /^\d+$/.test(x)).map(Number).sort((a, b) => a - b);
+    const pg = parts.includes('Post-graduate');
+    let txt = '';
+    if (nums.length) {
+      const run = nums.every((n, i) => i === 0 || n === nums[i - 1] + 1);
+      txt = nums.length === 1 ? `Grade ${nums[0]}` : run ? `Grades ${nums[0]}–${nums[nums.length - 1]}` : `Grades ${nums.join(', ')}`;
+    }
+    if (pg) txt = txt ? txt + ' + PG' : 'Post-graduate';
+    return txt;
+  }
+  const gradeChips = (g) => { const t = gradeLabel(g); return t ? `<span class="chip">${esc(t)}</span>` : '<span class="chip warn">Grades?</span>'; };
   function readiness() {
     const acts = sortedActs(), top = acts.slice(0, 10);
     const described = top.filter((a) => a.description && a.description.trim()).length;
@@ -750,8 +763,8 @@
         <header><h1>${esc(p.student_name || 'Lily')}</h1><div>${esc([p.high_school, p.city].filter(Boolean).join(' · '))}${p.grad_year ? ' · Class of ' + esc(p.grad_year) : ''}${p.intended_major ? ' · Intended: ' + esc(p.intended_major) : ''}</div>
           ${p.headline ? `<p class="bh">${esc(p.headline)}</p>` : ''}</header>
         ${stats.length ? `<section><h2>Academics</h2><div class="bstats">${stats.map(([k, v]) => `<div><b>${esc(v)}</b><span>${esc(k)}</span></div>`).join('')}</div>${p.stats_verified ? '' : '<p class="bnote">Figures to be confirmed against the official transcript.</p>'}</section>` : ''}
-        <section><h2>Activities &amp; leadership</h2>${acts.map((a) => `<div class="bitem"><div class="bt"><b>${esc(a.position || '')}${a.organization ? ', ' + esc(a.organization) : ''}</b><span>${esc(a.grades ? 'Grades ' + a.grades : '')}${actHours(a) ? ' · ' + actHours(a).toLocaleString() + ' hrs/yr' : ''}</span></div>${a.description ? `<div>${esc(a.description)}</div>` : ''}</div>`).join('')}</section>
-        ${hs.length ? `<section><h2>Honors</h2>${hs.map((h) => `<div class="bitem"><div class="bt"><b>${esc(h.title)}</b><span>${esc([h.level, h.grades ? 'Grades ' + h.grades : ''].filter(Boolean).join(' · '))}</span></div></div>`).join('')}</section>` : ''}
+        <section><h2>Activities &amp; leadership</h2>${acts.map((a) => `<div class="bitem"><div class="bt"><b>${esc(a.position || '')}${a.organization ? ', ' + esc(a.organization) : ''}</b><span>${esc(gradeLabel(a.grades))}${actHours(a) ? ' · ' + actHours(a).toLocaleString() + ' hrs/yr' : ''}</span></div>${a.description ? `<div>${esc(a.description)}</div>` : ''}</div>`).join('')}</section>
+        ${hs.length ? `<section><h2>Honors</h2>${hs.map((h) => `<div class="bitem"><div class="bt"><b>${esc(h.title)}</b><span>${esc([h.level, gradeLabel(h.grades)].filter(Boolean).join(' · '))}</span></div></div>`).join('')}</section>` : ''}
       </div>`;
   }
   function editMain() {
