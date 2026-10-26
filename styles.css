@@ -619,3 +619,6 @@ details.others { margin: -6px 0 10px; } details.others summary { cursor: pointer
 .cd.grad { border-top-color: var(--lily); }
 details.donegroup { margin-top: 18px; }
 details.donegroup summary { cursor: pointer; font-weight: 600; color: var(--muted); padding: 6px 0; }
+.scopeseg { margin: 4px 0 12px; }
+.chip.senior { background: var(--lily-soft); color: var(--lily); }
+.ev.ev-task.senior { outline: 1px dashed currentColor; outline-offset: -1px; }
