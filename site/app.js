@@ -3,7 +3,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '2026.10.26-11'; // keep in sync with the ?v= tags in index.html
+  const APP_VERSION = '2026.10.26-12'; // keep in sync with the ?v= tags in index.html
   const CFG = window.APP_CONFIG || {};
   const TZ = CFG.TIME_ZONE || 'America/Detroit';
   const WEEK_START = CFG.WEEK_START || '2026-10-25';
@@ -185,7 +185,7 @@
         <div class="title" data-edit-task="${t.id}">${esc(t.title)}</div>
         <div class="meta">
           ${dueChip(t.due_date, t.due_time, closed)}
-          <span class="chip owner-${esc(t.owner)}">${esc(t.owner)}</span>
+          <button type="button" class="chip owner-${esc(t.owner)} ownbtn" data-owner="${t.id}" title="Tap to reassign" aria-label="Owner ${esc(t.owner)}, tap to reassign">${esc(t.owner)} ⇄</button>
           ${col && !opts.hideCollege ? `<span class="chip">${esc(col)}</span>` : ''}
           ${cl.length ? `<span class="chip">${doneCount}/${cl.length} steps</span>` : ''}
           <select class="status" data-status="${t.id}" aria-label="Status">
@@ -213,6 +213,12 @@
       try { await save('tasks', { checklist: cl }, t.id); render(); } catch (e) { cb.checked = !cb.checked; }
     }));
     root.querySelectorAll('[data-edit-task]').forEach((el) => el.addEventListener('click', () => editTask(el.dataset.editTask)));
+    root.querySelectorAll('[data-owner]').forEach((b) => b.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const t = state.tasks.find((x) => x.id === b.dataset.owner); if (!t) return;
+      const next = OWNERS[(OWNERS.indexOf(t.owner) + 1) % OWNERS.length];
+      try { await save('tasks', { owner: next }, t.id); toast(`Reassigned to ${next}`); render(); } catch (err) { /* toast shown */ }
+    }));
   }
 
   // ------------------------------------------------------------ views
