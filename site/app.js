@@ -3,6 +3,7 @@
 (function () {
   'use strict';
 
+  const APP_VERSION = '2026.10.26-3'; // keep in sync with the ?v= tags in index.html
   const CFG = window.APP_CONFIG || {};
   const TZ = CFG.TIME_ZONE || 'America/Detroit';
   const WEEK_START = CFG.WEEK_START || '2026-10-25';
@@ -634,7 +635,8 @@
         <a href="#/admin">Backup &amp; export</a>
       </div>
       <p class="small muted" style="margin-top:16px">Signed in as ${esc(state.session.user.email)}${state.me ? ' (' + esc(state.me.role) + ')' : ''}</p>
-      <button id="signOut">Sign out</button>`;
+      <button id="signOut">Sign out</button>
+      <p class="small muted" style="margin-top:16px">App version ${APP_VERSION}</p>`;
   }
 
   function viewAllTasks() {

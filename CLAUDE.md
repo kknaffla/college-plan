@@ -58,6 +58,7 @@ This is a private college-application dashboard for **Kevin (parent)** and his d
 - Keep it dependency-free: vanilla JS, no framework, no build. Escape all user text with `esc()`, and only render http(s) links through `safeUrl()`.
 - Schema changes go in a new numbered file, `supabase/migrations/NNN_description.sql`, written to be idempotent. Update `schema.sql` to match.
 - After any change, run `node --check site/app.js` and the UI test.
+- Before each deploy, bump `APP_VERSION` in `site/app.js` and the matching `?v=` tags in `site/index.html` so phones load the new files instead of cached ones.
 - Commit messages: short and imperative.
 
 ## Later ideas (only when asked)
