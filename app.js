@@ -3,7 +3,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '2026.10.27-4'; // keep in sync with the ?v= tags in index.html
+  const APP_VERSION = '2026.10.27-5'; // keep in sync with the ?v= tags in index.html
   const CFG = window.APP_CONFIG || {};
   const TZ = CFG.TIME_ZONE || 'America/Detroit';
   const WEEK_START = CFG.WEEK_START || '2026-10-25';
@@ -243,7 +243,7 @@
       const q = parseQuick(ta.value, todayISO());
       const col = q.college ? state.colleges.find((c) => c.name === q.college) : null;
       $sheet.close();
-      editTask(null, { title: q.title, due_date: q.due_date, due_time: q.due_time, source_url: q.source_url, category: q.category, college_id: col ? col.id : null, notes: q.notes, owner: state.me && state.me.role === 'parent' ? 'Parent' : 'Lily' });
+      editTask(null, { title: q.title, due_date: q.due_date, due_time: q.due_time, source_url: q.source_url, category: q.category, college_id: col ? col.id : null, notes: 'Added with Paste to add. Check the title, date, and owner.\n\n' + q.notes, owner: state.me && state.me.role === 'parent' ? 'Parent' : 'Lily' });
       toast(q.due_date ? 'Check the date, then Save' : 'No date found. Add one to put it on the calendar');
     };
     if (!$sheet.open) $sheet.showModal();
