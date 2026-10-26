@@ -3,7 +3,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '2026.10.27-7'; // keep in sync with the ?v= tags in index.html
+  const APP_VERSION = '2026.10.27-8'; // keep in sync with the ?v= tags in index.html
   const CFG = window.APP_CONFIG || {};
   const TZ = CFG.TIME_ZONE || 'America/Detroit';
   const WEEK_START = CFG.WEEK_START || '2026-10-25';
@@ -16,7 +16,7 @@
   const counts = (t) => t.status !== 'Not needed';
   const COLLEGE_STATUS = ['Researching', 'Planning', 'In progress', 'Submitted', 'Complete', 'Admitted', 'Waitlisted', 'Denied', 'Not applying'];
   const SCH_STATUS = ['Researching', 'Planning', 'In progress', 'Submitted', 'Awarded', 'Not awarded', 'Not pursuing'];
-  const CATEGORIES = ['Admissions', 'School materials', 'Essays', 'Scholarship', 'Financial aid', 'Research', 'Other'];
+  const CATEGORIES = ['Admissions', 'School materials', 'Essays', 'Scholarship', 'Financial aid', 'Research', 'Senior year', 'Other'];
   const OWNERS = ['Lily', 'Parent', 'Both'];
   const PLANS = ['EA', 'ED', 'RD', 'Rolling', 'Undecided'];
   const TABLES = ['colleges', 'tasks', 'scholarships', 'profile_facts', 'visits', 'aid_offers', 'student_profile', 'activities', 'honors', 'essays', 'recommenders', 'documents'];
@@ -284,6 +284,46 @@
     if (!$sheet.open) $sheet.showModal();
   }
 
+  // ------------------------------------------------------------ senior year
+  // Senior-year milestones are ordinary tasks with category 'Senior year', so they share the calendar, brief, and sweeps.
+  function viewSenior() {
+    const p = sp();
+    const today = todayISO();
+    const ts = state.tasks.filter((t) => t.category === 'Senior year').sort(byDue);
+    const party = ts.find((t) => /grad(uation)? party/i.test(t.title) && /lily/i.test(t.title));
+    const rest = ts.filter((t) => t !== party);
+    const upcoming = rest.filter((t) => isOpen(t) && t.due_date);
+    const undated = rest.filter((t) => isOpen(t) && !t.due_date);
+    const finished = rest.filter((t) => !isOpen(t));
+    const counted = ts.filter(counts);
+    const doneN = counted.filter((t) => !isOpen(t)).length;
+    const d = p.grad_date ? daysUntil(p.grad_date) : null;
+    const hero = p.grad_date
+      ? `<div class="card gradhero"><div class="gradn">${d > 0 ? d : d === 0 ? 'Today' : 'Done'}</div><div><div class="gradl">${d > 0 ? (d === 1 ? 'day' : 'days') + ' to graduation' : d === 0 ? 'Graduation day' : 'Congratulations, Lily!'}</div>
+         <div class="small muted">${fmtDate(p.grad_date)}${p.grad_time ? ' · ' + esc(p.grad_time) : ''}${p.grad_place ? ' · ' + esc(p.grad_place) : ''}</div>
+         <button type="button" class="link small" id="editGrad">Edit graduation details</button></div></div>`
+      : `<div class="card gradhero"><div class="gradn">🎓</div><div><div class="gradl">Graduation date not posted yet</div><div class="small muted">Class of ${esc(p.grad_year || 2027)}. Add it when the school announces it.</div><button type="button" class="primary small" id="editGrad">Set graduation date</button></div></div>`;
+    const list = (arr) => arr.map((t) => taskCard(t)).join('');
+    return `<div class="spread"><h1>Senior year</h1><div class="row"><button id="quickAdd">Paste to add</button><button class="primary" id="addSenior">+ Task</button></div></div>
+      ${hero}
+      <p class="small muted">${doneN} of ${counted.length} senior-year items done. These also show on the Calendar and in the daily brief.</p>
+      ${party ? `<h2>Lily's grad party</h2>${taskCard(party, { expand: true })}` : ''}
+      <h2>Coming up</h2>
+      ${upcoming.length ? list(upcoming) : '<p class="muted small">Nothing dated yet.</p>'}
+      ${undated.length ? `<h2>Date not posted yet</h2><p class="small muted">Add the date when the school or class sends it.</p>${list(undated)}` : ''}
+      ${finished.length ? `<details class="donegroup"><summary>Done (${finished.length})</summary>${list(finished)}</details>` : ''}`;
+  }
+  function editGrad() {
+    const row = sp().id ? sp() : {};
+    openEditor({
+      title: 'Graduation', table: 'student_profile', row, noDelete: true,
+      fields: [
+        { pair: [{ k: 'grad_date', l: 'Graduation date', t: 'date' }, { k: 'grad_time', l: 'Time', p: 'e.g. 2:00 PM' }] },
+        { k: 'grad_place', l: 'Place', p: 'e.g. MHS gym' }
+      ]
+    });
+  }
+
   // ------------------------------------------------------------ task rendering
   function taskCard(t, opts) {
     opts = opts || {};
@@ -308,7 +348,7 @@
         ${t.blocker ? `<div class="blocker">⚠ Blocked: ${esc(t.blocker)}</div>` : ''}
         ${opts.expand && cl.length ? `<ul class="checklist">${cl.map((c, i) => `<li class="${c.done ? 'd' : ''}"><input type="checkbox" data-check="${t.id}" data-i="${i}" ${c.done ? 'checked' : ''} id="c-${t.id}-${i}"><label for="c-${t.id}-${i}"><span>${esc(c.text)}</span></label></li>`).join('')}</ul>` : ''}
         ${opts.expand && t.notes ? `<div class="small muted pre" style="margin-top:6px">${esc(t.notes)}</div>` : ''}
-        ${opts.expand && (t.source_url || t.due_date) ? sourceLine(t.source_url, t.verified_on) : ''}
+        ${opts.expand && (t.source_url || (t.due_date && !['Senior year', 'Other'].includes(t.category))) ? sourceLine(t.source_url, t.verified_on) : ''}
         ${t.updated_at ? `<div class="small muted" style="margin-top:4px">Updated ${ago(t.updated_at)}${t.updated_by ? ' by ' + esc(who(t.updated_by)) : ''}</div>` : ''}
       </div>
     </div>`;
@@ -364,6 +404,8 @@
     const otherActive = allEvents().filter((e) => e.kind !== 'task' && e.kind !== 'visit' && e.active);
     const otherOverdue = otherActive.filter((e) => e.date < today);
     const countdown = otherActive.filter((e) => e.date >= today).slice(0, 4);
+    const gd = sp().grad_date; const gdn = gd ? daysUntil(gd) : -1;
+    const gradCd = gdn >= 0 ? `<a class="card cd grad" href="#/senior"><div class="cdn">${gdn === 0 ? 'Today' : gdn}</div><div class="cdl">${gdn === 0 ? '' : gdn === 1 ? 'day' : 'days'}</div><div class="cdt">🎓 Graduation</div><div class="small muted">${fmtDate(gd)}</div></a>` : '';
     // Today: overdue first, then due today, then the next items so there are always up to 3 actions.
     const todayList = overdue.concat(dueToday);
     const focus = (todayList.length ? todayList : open).slice(0, 3);
@@ -395,7 +437,7 @@
         <a class="card stat" href="#/tasks" data-ownerfilter="${who === 'Everyone' ? 'All' : who}"><div class="n">${open.length}</div><div class="l">Open ${who === 'Everyone' ? 'tasks' : 'for ' + (who === 'Parent' ? 'Parent' : 'Lily')}</div></a>
       </div>
 
-      ${countdown.length ? `<div class="countdown">${countdown.map((e) => { const d = daysUntil(e.date); return `<a class="card cd ${d <= 3 ? 'hot' : d <= 10 ? 'warm' : ''}" href="${e.kind === 'college' ? '#/college/' + e.id : '#/scholarships'}"><div class="cdn">${d === 0 ? 'Today' : d}</div><div class="cdl">${d === 0 ? '' : d === 1 ? 'day' : 'days'}</div><div class="cdt">${EV_ICON[e.kind]} ${esc(e.kind === 'college' ? (SHORT_NAME[e.row.name] || e.row.name) + ' deadline' : e.title)}</div><div class="small muted">${fmtDate(e.date)}${e.time ? ' · ' + esc(e.time) : ''}</div></a>`; }).join('')}</div>` : ''}
+      ${countdown.length || gradCd ? `<div class="countdown">${gradCd}${countdown.slice(0, gradCd ? 3 : 4).map((e) => { const d = daysUntil(e.date); return `<a class="card cd ${d <= 3 ? 'hot' : d <= 10 ? 'warm' : ''}" href="${e.kind === 'college' ? '#/college/' + e.id : '#/scholarships'}"><div class="cdn">${d === 0 ? 'Today' : d}</div><div class="cdl">${d === 0 ? '' : d === 1 ? 'day' : 'days'}</div><div class="cdt">${EV_ICON[e.kind]} ${esc(e.kind === 'college' ? (SHORT_NAME[e.row.name] || e.row.name) + ' deadline' : e.title)}</div><div class="small muted">${fmtDate(e.date)}${e.time ? ' · ' + esc(e.time) : ''}</div></a>`; }).join('')}</div>` : ''}
 
       <h2 id="today">Today</h2>
       <div class="card todaycard">
@@ -1307,6 +1349,7 @@
         <a href="#/docs">${icon('docs')}<span>Documents <small>transcripts, essays, letters</small></span></a>
         <a href="#/compare">${icon('colleges')}<span>Compare colleges <small>side by side, fit score</small></span></a>
         <a href="#/week">${icon('calendar')}<span>This week</span></a>
+        <a href="#/senior">${icon('profile')}<span>Senior year <small>graduation countdown, class events, grad party</small></span></a>
         <a href="#/tasks">${icon('home')}<span>All tasks</span></a>
         <a href="#/more" id="shareSetup">${icon('calendar')}<span>Add from iPhone Share <small>send texts and emails to the app</small></span></a>
         <a href="#/visits">${icon('colleges')}<span>Campus visits</span></a>
@@ -1549,7 +1592,7 @@
   // Ordered by how often each page is used.
   const NAV = [['#/', 'Home', 'home'], ['#/calendar', 'Calendar', 'calendar'], ['#/colleges', 'Colleges', 'colleges'], ['#/scholarships', 'Scholarships', 'scholarships'], ['#/profile', 'Profile', 'profile']];
   const TOPNAV = NAV.concat([['#/money', 'Money', 'money'], ['#/docs', 'Documents', 'docs'], ['#/more', 'More', 'more']]);
-  const PAGE_TITLE = { '#/': 'Home', '#/calendar': 'Calendar', '#/week': 'This week', '#/colleges': 'Colleges', '#/scholarships': 'Scholarships', '#/profile': 'Profile', '#/brag': 'Brag sheet', '#/money': 'Money', '#/offers': 'Money', '#/aid': 'Money', '#/docs': 'Documents', '#/compare': 'Compare', '#/visits': 'Visits', '#/tasks': 'All tasks', '#/admin': 'Backup', '#/more': 'More' };
+  const PAGE_TITLE = { '#/': 'Home', '#/calendar': 'Calendar', '#/week': 'This week', '#/colleges': 'Colleges', '#/scholarships': 'Scholarships', '#/profile': 'Profile', '#/brag': 'Brag sheet', '#/money': 'Money', '#/offers': 'Money', '#/aid': 'Money', '#/docs': 'Documents', '#/compare': 'Compare', '#/visits': 'Visits', '#/senior': 'Senior year', '#/tasks': 'All tasks', '#/admin': 'Backup', '#/more': 'More' };
   const SHORT_NAME = { 'University of Michigan': 'U-M', 'Michigan State University': 'MSU', 'Michigan Technological University': 'Michigan Tech', 'Northern Michigan University': 'NMU' };
   function navBase(h) {
     if (h.startsWith('#/college/')) return '#/colleges';
@@ -1557,7 +1600,7 @@
     if (h === '#/brag') return '#/profile';
     if (h === '#/offers' || h === '#/aid') return '#/money';
     if (h === '#/compare') return '#/colleges';
-    if (['#/visits', '#/tasks', '#/admin'].includes(h)) return '#/more';
+    if (['#/visits', '#/tasks', '#/admin', '#/senior'].includes(h)) return '#/more';
     return h;
   }
   function nextDeadlineChip() {
@@ -1612,7 +1655,7 @@
     if (h === '#/calendar' && render._last !== '#/calendar' && !calJump) { sessionSet('calM', ''); sessionSet('calD', ''); }
     let html;
     if (h.startsWith('#/college/')) html = viewCollege(h.slice(10));
-    else html = ({ '#/week': viewWeek, '#/calendar': viewCalendar, '#/colleges': viewColleges, '#/scholarships': viewScholarships, '#/aid': viewMoney, '#/money': viewMoney, '#/profile': viewProfile, '#/more': viewMore, '#/admin': viewAdmin, '#/tasks': viewAllTasks, '#/visits': viewVisits, '#/offers': viewMoney, '#/docs': viewDocs, '#/compare': viewCompare, '#/brag': viewBrag }[h] || viewDashboard)();
+    else html = ({ '#/week': viewWeek, '#/calendar': viewCalendar, '#/colleges': viewColleges, '#/scholarships': viewScholarships, '#/aid': viewMoney, '#/money': viewMoney, '#/profile': viewProfile, '#/more': viewMore, '#/admin': viewAdmin, '#/tasks': viewAllTasks, '#/senior': viewSenior, '#/visits': viewVisits, '#/offers': viewMoney, '#/docs': viewDocs, '#/compare': viewCompare, '#/brag': viewBrag }[h] || viewDashboard)();
     const scroll = window.scrollY;
     $app.innerHTML = html;
     if (render._last === h) window.scrollTo(0, scroll); else window.scrollTo(0, 0);
@@ -1634,6 +1677,8 @@
     on('#addVisit', (e) => editVisit(null, { college_id: e.currentTarget.dataset.college || null }));
     on('#subBtn', () => openSubscribe());
     on('#quickAdd', () => openQuickAdd());
+    on('#addSenior', () => editTask(null, { category: 'Senior year', owner: 'Both' }));
+    on('#editGrad', () => editGrad());
     on('#shareSetup', (e) => { e.preventDefault(); openShareSetup(); });
     on('#editMain', () => editMain());
     on('#editTiles', () => editTiles());
