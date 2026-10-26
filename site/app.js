@@ -3,7 +3,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '2026.10.27-6'; // keep in sync with the ?v= tags in index.html
+  const APP_VERSION = '2026.10.27-7'; // keep in sync with the ?v= tags in index.html
   const CFG = window.APP_CONFIG || {};
   const TZ = CFG.TIME_ZONE || 'America/Detroit';
   const WEEK_START = CFG.WEEK_START || '2026-10-25';
@@ -1705,13 +1705,14 @@
   function viewLogin(mode) {
     chrome(false);
     if (mode === 'recover') {
-      $app.innerHTML = `<form class="login card" id="pwForm"><h1>Set a new password</h1>
+      $app.innerHTML = `<form class="login card" id="pwForm"><h1>${viewLogin.invited ? 'Welcome! Choose your password' : 'Set a new password'}</h1>
+        ${viewLogin.invited ? '<p class="muted small">You use this password with your email to sign in to Lily’s College Plan.</p>' : ''}
         <label class="f">New password<input type="password" name="pw" minlength="8" required autocomplete="new-password"></label>
         <button class="primary" type="submit">Save password</button></form>`;
       document.getElementById('pwForm').onsubmit = async (e) => {
         e.preventDefault();
         const { error } = await sb.auth.updateUser({ password: e.target.pw.value });
-        if (error) toast(error.message); else { toast('Password saved'); location.hash = '#/'; start(); }
+        if (error) toast(error.message); else { toast('Password saved'); viewLogin.invited = false; location.hash = '#/'; start(); }
       };
       return;
     }
@@ -1763,10 +1764,12 @@
       $app.innerHTML = '<div class="login card"><h1>Setup needed</h1><p>Fill in <code>config.js</code> with your Supabase URL and anon key (README step 3).</p></div>';
       return;
     }
+    // An invite link (Supabase › Users › Send invitation) signs the person in without a password, so ask for one first.
+    const invited = /type=invite/.test(location.hash);
     sb = window.supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } });
     let recovering = false;
     sb.auth.onAuthStateChange((event, session) => {
-      if (event === 'PASSWORD_RECOVERY') { recovering = true; state.session = session; viewLogin('recover'); return; }
+      if (event === 'PASSWORD_RECOVERY' || (invited && session && !recovering && event === 'SIGNED_IN')) { recovering = true; viewLogin.invited = invited; state.session = session; viewLogin('recover'); return; }
       const prev = state.session && state.session.user.id;
       state.session = session;
       if (!session) { state.loaded = false; state.me = null; viewLogin(); return; }
