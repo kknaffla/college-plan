@@ -1,0 +1,6 @@
+# Contains Lily's personal profile details — keep OUT of any public repo.
+supabase/seed.sql
+tests/fixtures/
+tests/out/
+node_modules/
+.DS_Store

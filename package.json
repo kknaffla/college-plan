@@ -1,0 +1,12 @@
+{
+  "name": "college-plan",
+  "private": true,
+  "description": "Lily's college application dashboard (static site + Supabase)",
+  "scripts": {
+    "serve": "python3 -m http.server 8000 --directory site",
+    "test:ui": "node tests/ui-test.js"
+  },
+  "devDependencies": {
+    "playwright": "^1.47.0"
+  }
+}
