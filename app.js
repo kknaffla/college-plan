@@ -3,7 +3,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '2026.10.27-5'; // keep in sync with the ?v= tags in index.html
+  const APP_VERSION = '2026.10.27-6'; // keep in sync with the ?v= tags in index.html
   const CFG = window.APP_CONFIG || {};
   const TZ = CFG.TIME_ZONE || 'America/Detroit';
   const WEEK_START = CFG.WEEK_START || '2026-10-25';
@@ -1601,6 +1601,13 @@
     }
     chrome(true);
     const h = location.hash || '#/';
+    // Deep links from the daily email: #/day/YYYY-MM-DD opens Calendar on that day; #/task/<id> opens that task.
+    const dl = h.match(/^#\/(day|task)\/([\w-]+)$/);
+    if (dl) {
+      if (dl[1] === 'day') { sessionSet('calM', dl[2].slice(0, 7)); sessionSet('calD', dl[2]); sessionSet('calJump', dl[2]); location.replace('#/calendar'); }
+      else { sessionSet('openTask', dl[2]); location.replace('#/tasks'); }
+      return;
+    }
     const calJump = sessionGet('calJump');
     if (h === '#/calendar' && render._last !== '#/calendar' && !calJump) { sessionSet('calM', ''); sessionSet('calD', ''); }
     let html;
@@ -1612,6 +1619,8 @@
     render._last = h;
     wire();
     if (h === '#/calendar' && calJump) { sessionSet('calJump', ''); jumpToDay(calJump); }
+    const ot = sessionGet('openTask');
+    if (ot && h === '#/tasks') { sessionSet('openTask', ''); if (state.tasks.some((t) => t.id === ot)) editTask(ot); else toast('That task was removed or marked not needed.'); }
   }
 
   function wire() {
