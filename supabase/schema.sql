@@ -386,3 +386,6 @@ alter table public.student_profile add column if not exists tiles jsonb;
 
 -- ===== from migrations/006_scholarship_scope.sql =====
 alter table public.scholarships add column if not exists scope text;
+
+-- ===== from migrations/007_application_parts.sql =====
+alter table public.colleges add column if not exists app_parts jsonb;
