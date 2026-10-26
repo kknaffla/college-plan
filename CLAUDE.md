@@ -18,7 +18,7 @@ This is a private college-application dashboard for **Kevin (parent)** and his d
   - A trigger `stamp_row()` sets `updated_at` and `updated_by`.
   - The tables are published to realtime. The file is idempotent and safe to re-run.
 - `supabase/seed.sql` holds the starting data from the family's action plan. It is **gitignored** because it contains Lily's personal profile details.
-- **Hosting:** GitHub Pages serves `site/` over HTTPS. Free Pages requires a **public** repo, so the repo must contain no family data: keep `seed.sql` and `tests/fixtures/` out of it.
+- **Hosting:** GitHub Pages serves `site/` over HTTPS at https://kknaffla.github.io/college-plan/ (repo `kknaffla/college-plan`). Pages builds from the `gh-pages` branch, which holds only `site/`. After committing a change to `site/` on `main`, deploy with `git push origin main && git subtree push --prefix site origin gh-pages`. The gh CLI lives at `~/.local/bin/gh`; its token lacks the `workflow` scope, so don't add GitHub Actions workflows without `gh auth refresh -s workflow`. Free Pages requires a **public** repo, so the repo must contain no family data: keep `seed.sql` and `tests/fixtures/` out of it.
 - **Auth:** Supabase email + password. **Public sign-ups are disabled.** Kevin creates the users in the Supabase dashboard, then inserts them into `members` (README step 5). Password resets redirect back to the Pages URL.
 - **Dates:** dates are stored as `date` and times as text ("8:00 AM"). The time zone is America/Detroit. `todayISO()` in `app.js` uses Intl with that time zone.
 - **This Week window:** `WEEK_START` / `WEEK_END` in `config.js` (currently Oct 25 – Nov 1, 2026).
