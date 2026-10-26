@@ -51,7 +51,7 @@ create table if not exists public.tasks (
   title       text not null,
   college_id  uuid references public.colleges(id) on delete set null,
   category    text not null default 'Admissions'
-              check (category in ('Admissions','School materials','Essays','Scholarship','Financial aid','Research','Other')),
+              check (category in ('Admissions','School materials','Essays','Scholarship','Financial aid','Research','Senior year','Other')),
   due_date    date,
   due_time    text,
   owner       text not null default 'Lily' check (owner in ('Lily','Parent','Both')),
@@ -434,3 +434,8 @@ create table if not exists public.daily_brief (
 insert into public.daily_brief (id) values (1) on conflict (id) do nothing;
 alter table public.daily_brief enable row level security;
 revoke all on public.daily_brief from anon, authenticated;
+
+-- Senior year (also in migrations/013_senior_year.sql)
+alter table public.student_profile add column if not exists grad_date  date;
+alter table public.student_profile add column if not exists grad_time  text;
+alter table public.student_profile add column if not exists grad_place text;
