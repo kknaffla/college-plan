@@ -84,28 +84,28 @@ Deno.serve(async (req) => {
 
   const html = `<div style="font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;max-width:560px;margin:0 auto;color:#1f2a23;font-size:15px;line-height:1.45">
   <p style="margin:0 0 4px;color:#5f6b63;font-size:13px">${h(dateLabel)} · <a href="${APP}" style="color:#1d3b2a">Open the college plan</a></p>
-  <h2 style="margin:0 0 12px;font-size:20px">Lily's college plan: today</h2>
+  <h2 style="margin:0 0 12px;font-size:20px">Lily's College Plan Daily Brief</h2>
   ${top ? `<div style="background:#eef5ef;border-left:4px solid #2f6b45;padding:12px 14px;border-radius:6px"><div style="font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:#2f6b45;font-weight:700">Most important</div><a href="${h(top.link)}" style="font-size:17px;font-weight:700;color:#1d3b2a;text-decoration:none">${h(top.title)}</a><div style="color:#5f6b63;font-size:13px">${h(when(top))}${top.who ? ' · ' + h(top.who) : ''}</div></div>` : '<p>Nothing is due in the next week. A good day to get ahead.</p>'}
   ${countdown.length ? `<p style="margin:14px 0 0;font-size:14px">${countdown.map((c) => { const n = daysBetween(today, c.date); return `<b>${h(c.title.replace(' application due', ''))}</b> ${n === 0 ? 'due today' : `in ${n} day${n === 1 ? '' : 's'}`}`; }).join(' · ')}</p>` : ''}
   ${section('Due today', dueToday.filter((i) => i !== top), false)}
   ${section('Overdue', overdue.filter((i) => i !== top), true, 5)}
   ${section('Next 7 days', week.filter((i) => i !== top), true, 6)}
   <p style="margin:22px 0 0"><a href="${APP}" style="display:inline-block;background:#2f6b45;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none;font-weight:600">Open the college plan</a></p>
-  <p style="color:#8a948d;font-size:12px;margin:16px 0 0">Sent at 7 AM by the college plan. Mark things done in the app and they drop off tomorrow's email.</p></div>`;
+  <p style="color:#8a948d;font-size:12px;margin:16px 0 0">Lily's College Plan Daily Brief, sent at 7 AM. Mark things done in the app and they drop off tomorrow's email.</p></div>`;
 
   const tline = (i: Item) => `- ${i.title} (${when(i)}${i.who ? ', ' + i.who : ''}) ${i.link}`;
-  const text = [`Lily's college plan: ${dateLabel}`, `Open the app: ${APP}`, '',
+  const text = [`Lily's College Plan Daily Brief: ${dateLabel}`, `Open the app: ${APP}`, '',
     top ? `MOST IMPORTANT: ${top.title} (${when(top)})\n${top.link}` : 'Nothing due in the next week.',
     dueToday.length ? '\nDUE TODAY\n' + dueToday.filter((i) => i !== top).map(tline).join('\n') : '',
     overdue.length ? '\nOVERDUE\n' + overdue.filter((i) => i !== top).slice(0, 5).map(tline).join('\n') : '',
     week.length ? '\nNEXT 7 DAYS\n' + week.filter((i) => i !== top).slice(0, 6).map(tline).join('\n') : ''].join('\n');
-  const subject = `College plan ${nice(today)}: ${top ? top.title : 'nothing due this week'}`.slice(0, 120);
+  const subject = `Lily's College Plan Daily Brief, ${nice(today)}: ${top ? top.title : 'nothing due this week'}`.slice(0, 140);
 
   const user = Deno.env.get('GMAIL_USER'), pass = Deno.env.get('GMAIL_APP_PASSWORD');
   if (!user || !pass) return reply('Email secrets are not set yet.', 500);
   try {
     const tx = nodemailer.createTransport({ host: 'smtp.gmail.com', port: 465, secure: true, auth: { user, pass } });
-    await tx.sendMail({ from: `"College Plan" <${user}>`, to: to.join(', '), subject, text, html });
+    await tx.sendMail({ from: `"Lily's College Plan" <${user}>`, to: to.join(', '), subject, text, html });
   } catch (e) {
     return reply('Send failed: ' + (e as Error).message, 502);
   }
