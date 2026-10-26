@@ -385,3 +385,11 @@ fieldset.multi legend { padding: 0; margin-bottom: 4px; }
   .wrap { padding: 0; max-width: none; }
   .brag { border: 0; padding: 0; max-width: none; }
 }
+
+.tilerow { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) auto auto auto; gap: 6px; align-items: center; margin-bottom: 8px; }
+.tilerow input { padding: 8px; }
+.tilerow .mv { padding: 6px 8px; }
+@media (max-width: 520px) {
+  .tilerow { grid-template-columns: minmax(0, 1fr) auto auto auto; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+  .tilerow input:first-child { grid-column: 1 / -1; font-weight: 600; }
+}

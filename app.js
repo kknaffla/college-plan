@@ -3,7 +3,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '2026.10.26-5'; // keep in sync with the ?v= tags in index.html
+  const APP_VERSION = '2026.10.26-6'; // keep in sync with the ?v= tags in index.html
   const CFG = window.APP_CONFIG || {};
   const TZ = CFG.TIME_ZONE || 'America/Detroit';
   const WEEK_START = CFG.WEEK_START || '2026-10-25';
@@ -639,6 +639,10 @@
 
   // ------------------------------------------------------------ profile
   const sp = () => state.student_profile[0] || {};
+  function profileTiles(p) {
+    if (Array.isArray(p.tiles)) return p.tiles;
+    return [['GPA (weighted)', p.gpa_weighted], ['GPA (unweighted)', p.gpa_unweighted], ['SAT', p.sat], ['Class rank', p.class_rank], ['Dual-enrollment', p.dual_credits]].map(([label, value]) => ({ label, value: value || '' }));
+  }
   const sortedActs = () => state.activities.slice().sort((a, b) => a.sort - b.sort || String(a.organization).localeCompare(String(b.organization)));
   const sortedHonors = () => state.honors.slice().sort((a, b) => a.sort - b.sort);
   const actHours = (a) => Math.round(num(a.hours_per_week) * num(a.weeks_per_year));
@@ -675,8 +679,8 @@
         </div>
       </div>
       <div class="card pstats">
-        ${stat('GPA (weighted)', p.gpa_weighted)}${stat('GPA (unweighted)', p.gpa_unweighted)}${stat('SAT', p.sat)}${stat('ACT', p.act)}${stat('Class rank', p.class_rank)}${stat('Dual-enrollment', p.dual_credits)}
-        <div class="pver">${p.stats_verified ? '<span class="chip good">Numbers verified</span>' : '<span class="chip warn">Numbers unverified — check the transcript</span>'}</div>
+        ${profileTiles(p).map((t) => stat(t.label, t.value)).join('')}
+        <div class="pver spread">${p.stats_verified ? '<span class="chip good">Numbers verified</span>' : '<span class="chip warn">Numbers unverified — check the transcript</span>'}<button type="button" class="link" id="editTiles">Edit tiles</button></div>
       </div>
       <div class="readyrings">${readiness().map((r) => `<button type="button" class="card rcell ${tab === r.tab ? 'on' : ''}" data-ptab="${r.tab}">${ring(Math.round((r.done / r.total) * 100), r.k + ' ' + r.center + ' ' + r.sub, r.center)}<div class="rl">${esc(r.k)}</div><div class="small muted">${esc(r.sub)}</div></button>`).join('')}</div>
       <div class="row" style="margin:12px 0"><a class="btn primary" href="#/brag">Brag sheet (print / PDF)</a><a class="btn" href="#/docs">Documents</a></div>
@@ -740,7 +744,7 @@
   }
   function viewBrag() {
     const p = sp(), acts = sortedActs(), hs = sortedHonors();
-    const stats = [['GPA (weighted)', p.gpa_weighted], ['GPA (unweighted)', p.gpa_unweighted], ['SAT', p.sat], ['ACT', p.act], ['Class rank', p.class_rank], ['Dual-enrollment', p.dual_credits]].filter(([, v]) => v);
+    const stats = profileTiles(p).filter((t) => t.label && t.value).map((t) => [t.label, t.value]);
     return `<div class="noprint row" style="margin-bottom:12px"><a href="#/profile">← Profile</a><button class="primary" id="printBtn">Print / Save as PDF</button></div>
       <div class="brag">
         <header><h1>${esc(p.student_name || 'Lily')}</h1><div>${esc([p.high_school, p.city].filter(Boolean).join(' · '))}${p.grad_year ? ' · Class of ' + esc(p.grad_year) : ''}${p.intended_major ? ' · Intended: ' + esc(p.intended_major) : ''}</div>
@@ -759,14 +763,45 @@
         { pair: [{ k: 'high_school', l: 'High school' }, { k: 'city', l: 'City' }] },
         { k: 'intended_major', l: 'Intended major' },
         { k: 'headline', l: 'One-line headline (her words)', max: 150 },
-        { pair: [{ k: 'gpa_weighted', l: 'GPA weighted' }, { k: 'gpa_unweighted', l: 'GPA unweighted' }] },
-        { pair: [{ k: 'sat', l: 'SAT' }, { k: 'act', l: 'ACT' }] },
-        { pair: [{ k: 'class_rank', l: 'Class rank' }, { k: 'dual_credits', l: 'Dual-enrollment credits' }] },
         { k: 'stats_verified', l: 'Numbers checked against the official transcript', t: 'bool' },
         { k: 'notes', l: 'Notes', t: 'textarea' }
       ]
     });
   }
+  // Number tiles: free-form label/value pairs Lily or Kevin can add, remove, rename, and reorder.
+  function editTiles() {
+    let tiles = profileTiles(sp()).map((t) => ({ label: t.label || '', value: t.value || '' }));
+    const draw = () => {
+      $sheet.innerHTML = `<form method="dialog" id="tileForm">
+        <h2 style="margin-top:0">Number tiles</h2>
+        <p class="small muted">Add the numbers that tell Lily’s story — e.g. AP courses, volunteer hours, college credits. Leave a value blank to show “—”.</p>
+        ${tiles.map((t, i) => `<div class="tilerow">
+          <input name="l${i}" value="${esc(t.label)}" placeholder="Label (e.g. AP courses)" maxlength="28" aria-label="Tile ${i + 1} label">
+          <input name="v${i}" value="${esc(t.value)}" placeholder="Value" maxlength="40" aria-label="Tile ${i + 1} value">
+          <button type="button" class="mv" data-tup="${i}" aria-label="Move up" ${i === 0 ? 'disabled' : ''}>▲</button>
+          <button type="button" class="mv" data-tdn="${i}" aria-label="Move down" ${i === tiles.length - 1 ? 'disabled' : ''}>▼</button>
+          <button type="button" class="danger mv" data-tdel="${i}" aria-label="Remove tile">✕</button>
+        </div>`).join('')}
+        <p><button type="button" id="tileAdd" ${tiles.length >= 12 ? 'disabled' : ''}>+ Add tile</button></p>
+        <div class="actions"><div></div><div class="row"><button type="button" id="tileCancel">Cancel</button><button type="submit" class="primary">Save</button></div></div>
+      </form>`;
+      const form = $sheet.querySelector('form');
+      const grab = () => { tiles = tiles.map((_, i) => ({ label: form.elements['l' + i].value.trim(), value: form.elements['v' + i].value.trim() })); };
+      $sheet.querySelector('#tileCancel').onclick = () => $sheet.close();
+      $sheet.querySelector('#tileAdd').onclick = () => { grab(); tiles.push({ label: '', value: '' }); draw(); const last = $sheet.querySelector(`[name="l${tiles.length - 1}"]`); if (last) last.focus(); };
+      $sheet.querySelectorAll('[data-tdel]').forEach((b) => b.onclick = () => { grab(); tiles.splice(+b.dataset.tdel, 1); draw(); });
+      $sheet.querySelectorAll('[data-tup]').forEach((b) => b.onclick = () => { grab(); const i = +b.dataset.tup; [tiles[i - 1], tiles[i]] = [tiles[i], tiles[i - 1]]; draw(); });
+      $sheet.querySelectorAll('[data-tdn]').forEach((b) => b.onclick = () => { grab(); const i = +b.dataset.tdn; [tiles[i + 1], tiles[i]] = [tiles[i], tiles[i + 1]]; draw(); });
+      form.onsubmit = async (ev) => {
+        ev.preventDefault(); grab();
+        const clean = tiles.filter((t) => t.label);
+        try { await save('student_profile', { tiles: clean }, sp().id || null); $sheet.close(); toast('Tiles saved'); render(); } catch (e) { /* toast shown */ }
+      };
+    };
+    draw();
+    if (!$sheet.open) $sheet.showModal();
+  }
+
   function editActivity(id) {
     const row = id ? state.activities.find((a) => a.id === id) : { sort: (Math.max(0, ...state.activities.map((a) => a.sort)) + 10) };
     openEditor({
@@ -1194,6 +1229,7 @@
     on('#addVisit', (e) => editVisit(null, { college_id: e.currentTarget.dataset.college || null }));
     on('#subBtn', () => openSubscribe());
     on('#editMain', () => editMain());
+    on('#editTiles', () => editTiles());
     on('#addAct', () => editActivity(null));
     on('#addHonor', () => editHonor(null));
     on('#addEssay', () => editEssay(null));
