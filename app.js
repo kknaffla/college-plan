@@ -3,7 +3,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '2026.10.26-4'; // keep in sync with the ?v= tags in index.html
+  const APP_VERSION = '2026.10.26-5'; // keep in sync with the ?v= tags in index.html
   const CFG = window.APP_CONFIG || {};
   const TZ = CFG.TIME_ZONE || 'America/Detroit';
   const WEEK_START = CFG.WEEK_START || '2026-10-25';
@@ -18,12 +18,22 @@
   const CATEGORIES = ['Admissions', 'School materials', 'Essays', 'Scholarship', 'Financial aid', 'Research', 'Other'];
   const OWNERS = ['Lily', 'Parent', 'Both'];
   const PLANS = ['EA', 'ED', 'RD', 'Rolling', 'Undecided'];
-  const TABLES = ['colleges', 'tasks', 'scholarships', 'profile_facts', 'visits', 'aid_offers'];
+  const TABLES = ['colleges', 'tasks', 'scholarships', 'profile_facts', 'visits', 'aid_offers', 'student_profile', 'activities', 'honors', 'essays', 'recommenders', 'documents'];
+  const TABLE_ORDER = { colleges: ['priority', 'name'], profile_facts: ['sort'], activities: ['sort'], honors: ['sort'] };
+  const ACT_TYPES = ['Academic', 'Art', 'Athletics: Club', 'Athletics: JV/Varsity', 'Career Oriented', 'Community Service (Volunteer)', 'Computer/Technology', 'Cultural', 'Dance', 'Debate/Speech', 'Environmental', 'Family Responsibilities', 'Foreign Exchange', 'Foreign Language', 'Internship', 'Journalism/Publication', 'Junior R.O.T.C.', 'LGBT', 'Music: Instrumental', 'Music: Vocal', 'Religious', 'Research', 'Robotics', 'School Spirit', 'Science/Math', 'Social Justice', 'Student Govt./Politics', 'Theater/Drama', 'Work (Paid)', 'Other Club/Activity'];
+  const GRADES = ['9', '10', '11', '12', 'Post-graduate'];
+  const ESSAY_STATUS = ['Not started', 'Brainstorming', 'Drafting', 'Revising', 'Final', 'Submitted'];
+  const REC_STATUS = ['To ask', 'Asked', 'Agreed', 'Submitted', 'Thanked'];
+  const DOC_CATS = ['Essays', 'Transcripts & scores', 'Resume & activities', 'Awards & certificates', 'Recommendations', 'Application receipts', 'Admission letters', 'Scholarships', 'Visits & photos', 'Other'];
+  const DOC_ICON = { Essays: '✎', 'Transcripts & scores': '▤', 'Resume & activities': '☰', 'Awards & certificates': '★', Recommendations: '✉', 'Application receipts': '✓', 'Admission letters': '🎓', Scholarships: '$', 'Visits & photos': '📍', Other: '•' };
+  // File names that suggest financial records, which this app must never store.
+  const FINANCIAL_NAME = /\b(tax(es)?|1040|w-?2|w-?9|1099|fafsa|css[ _-]?profile|ssn|social[ _-]?security|bank|routing|pay[ _-]?stub|irs|idoc)\b/i;
   const VISIT_KINDS = ['Campus tour', 'Admitted-student day', 'Info session', 'Virtual', 'Interview', 'Other'];
   const SCH_ACTIVE = ['Planning', 'In progress'];
   const COLLEGE_DONE = ['Submitted', 'Complete', 'Admitted', 'Waitlisted', 'Denied', 'Not applying'];
 
-  const state = { session: null, me: null, members: [], colleges: [], tasks: [], scholarships: [], profile_facts: [], visits: [], aid_offers: [], loaded: false };
+  const state = { session: null, me: null, members: [], loaded: false };
+  TABLES.forEach((t) => { state[t] = []; });
   let sb = null;
   let channel = null;
 
@@ -80,9 +90,10 @@
         <div class="meta">${dueChip(e.date, e.time, !e.active)}${e.kind === 'sch' ? statusChip(e.row.status) : ''}${e.kind === 'college' ? statusChip(e.row.status) : ''}${safeUrl(src) ? link(src, 'Official source') : ''}</div></div>
     </div>`;
   }
-  function ring(pct, label) {
+  function ring(pct, label, center) {
     const r = 26, c = 2 * Math.PI * r;
-    return `<svg class="ring" viewBox="0 0 64 64" role="img" aria-label="${esc(label)}"><circle cx="32" cy="32" r="${r}" class="ring-bg"/><circle cx="32" cy="32" r="${r}" class="ring-fg" stroke-dasharray="${(c * pct / 100).toFixed(1)} ${c.toFixed(1)}" transform="rotate(-90 32 32)"/><text x="32" y="37" text-anchor="middle">${pct}%</text></svg>`;
+    pct = Math.max(0, Math.min(100, pct || 0));
+    return `<svg class="ring" viewBox="0 0 64 64" role="img" aria-label="${esc(label)}"><circle cx="32" cy="32" r="${r}" class="ring-bg"/><circle cx="32" cy="32" r="${r}" class="ring-fg" stroke-dasharray="${(c * pct / 100).toFixed(1)} ${c.toFixed(1)}" transform="rotate(-90 32 32)"/><text x="32" y="37" text-anchor="middle">${esc(center == null ? pct + '%' : center)}</text></svg>`;
   }
 
   function toast(msg) {
@@ -112,18 +123,15 @@
 
   // ------------------------------------------------------------ data
   async function loadAll() {
-    const results = await Promise.all([
-      sb.from('members').select('*'),
-      sb.from('colleges').select('*').order('priority').order('name'),
-      sb.from('tasks').select('*'),
-      sb.from('scholarships').select('*'),
-      sb.from('profile_facts').select('*').order('sort'),
-      sb.from('visits').select('*'),
-      sb.from('aid_offers').select('*')
-    ]);
+    const results = await Promise.all([sb.from('members').select('*')].concat(TABLES.map((t) => {
+      let q = sb.from(t).select('*');
+      (TABLE_ORDER[t] || []).forEach((c) => { q = q.order(c); });
+      return q;
+    })));
     const err = results.find((r) => r.error);
     if (err) throw err.error;
-    [state.members, state.colleges, state.tasks, state.scholarships, state.profile_facts, state.visits, state.aid_offers] = results.map((r) => r.data || []);
+    state.members = results[0].data || [];
+    TABLES.forEach((t, i) => { state[t] = results[i + 1].data || []; });
     state.me = state.members.find((m) => m.user_id === state.session.user.id) || null;
     state.loaded = true;
   }
@@ -469,6 +477,8 @@
       ${sch.length ? `<h2>Scholarships</h2>${sch.map(schCard).join('')}` : ''}
       <div class="spread"><h2>Visits</h2><button id="addVisit" data-college="${c.id}" style="margin-top:1rem">+ Visit</button></div>
       ${vis.length ? vis.map(visitCard).join('') : '<p class="muted small">No visits logged.</p>'}
+      <div class="spread"><h2>Documents</h2><button id="addDoc" data-college="${c.id}" style="margin-top:1rem">+ Upload</button></div>
+      ${state.documents.filter((d) => d.college_id === c.id).map(docCard).join('') || '<p class="muted small">No documents for this college yet.</p>'}
       <div class="spread"><h2>Cost</h2><a href="#/offers" class="small" style="margin-top:1.6rem">Compare all →</a></div>
       ${off ? `<div class="card small"><b>${esc(off.kind)}:</b> cost ${money(om.coa)} − grants &amp; scholarships ${money(om.free)} = <b>net ${money(om.net)}</b>/yr${om.loans ? ` · loans offered ${money(om.loans)}` : ''}</div>` : `<p class="muted small">No estimate yet. <button type="button" class="link" data-offer-new="${c.id}">Add one</button></p>`}
     `;
@@ -627,15 +637,283 @@
     });
   }
 
+  // ------------------------------------------------------------ profile
+  const sp = () => state.student_profile[0] || {};
+  const sortedActs = () => state.activities.slice().sort((a, b) => a.sort - b.sort || String(a.organization).localeCompare(String(b.organization)));
+  const sortedHonors = () => state.honors.slice().sort((a, b) => a.sort - b.sort);
+  const actHours = (a) => Math.round(num(a.hours_per_week) * num(a.weeks_per_year));
+  const gradeChips = (g) => (g ? g.split(',').map((x) => `<span class="chip">${esc(x.trim() === 'Post-graduate' ? 'PG' : 'Gr ' + x.trim())}</span>`).join('') : '<span class="chip warn">Grades?</span>');
+  function readiness() {
+    const acts = sortedActs(), top = acts.slice(0, 10);
+    const described = top.filter((a) => a.description && a.description.trim()).length;
+    const essays = state.essays, eDone = essays.filter((e) => ['Final', 'Submitted'].includes(e.status)).length;
+    const recs = state.recommenders, rDone = recs.filter((r) => ['Submitted', 'Thanked'].includes(r.status)).length;
+    const honors = state.honors.length;
+    return [
+      { k: 'Activities', done: described, total: Math.min(10, acts.length) || 10, center: `${described}/${Math.min(10, acts.length) || 10}`, sub: 'described', tab: 'activities' },
+      { k: 'Honors', done: Math.min(honors, 5), total: 5, center: `${Math.min(honors, 5)}/5`, sub: 'listed', tab: 'honors' },
+      { k: 'Essays', done: eDone, total: essays.length || 1, center: `${eDone}/${essays.length}`, sub: 'final', tab: 'essays' },
+      { k: 'Recs', done: rDone, total: recs.length || 1, center: `${rDone}/${recs.length}`, sub: 'submitted', tab: 'recs' }
+    ];
+  }
   function viewProfile() {
+    const p = sp();
+    const tab = sessionGet('profTab') || 'activities';
+    const applying = applyingColleges().filter((c) => c.priority <= 4);
+    const stat = (label, v) => `<div class="pstat"><div class="pv">${v ? esc(v) : '<span class="muted">—</span>'}</div><div class="pl">${esc(label)}</div></div>`;
+    const tabs = [['activities', 'Activities'], ['honors', 'Honors'], ['essays', 'Essays'], ['recs', 'Recommenders'], ['story', 'Story bank']];
+    const body = { activities: profActivities, honors: profHonors, essays: profEssays, recs: profRecs, story: profStory }[tab] || profActivities;
+    return `
+      <div class="phero card">
+        <div class="pava" aria-hidden="true">${esc((p.student_name || 'L').slice(0, 1))}</div>
+        <div class="pmain">
+          <div class="spread"><h1 style="margin:0">${esc(p.student_name || 'Lily')}</h1><button type="button" id="editMain">Edit</button></div>
+          <div class="muted small">${esc([p.high_school, p.city].filter(Boolean).join(' · '))}${p.grad_year ? ' · Class of ' + esc(p.grad_year) : ''}</div>
+          ${p.intended_major ? `<div class="small" style="margin-top:4px"><b>Intended:</b> ${esc(p.intended_major)}</div>` : ''}
+          ${p.headline ? `<p class="phead">“${esc(p.headline)}”</p>` : ''}
+          <div class="row" style="margin-top:6px">${applying.map((c) => `<a class="chip info" href="#/college/${c.id}">${esc(c.name)}</a>`).join('')}</div>
+        </div>
+      </div>
+      <div class="card pstats">
+        ${stat('GPA (weighted)', p.gpa_weighted)}${stat('GPA (unweighted)', p.gpa_unweighted)}${stat('SAT', p.sat)}${stat('ACT', p.act)}${stat('Class rank', p.class_rank)}${stat('Dual-enrollment', p.dual_credits)}
+        <div class="pver">${p.stats_verified ? '<span class="chip good">Numbers verified</span>' : '<span class="chip warn">Numbers unverified — check the transcript</span>'}</div>
+      </div>
+      <div class="readyrings">${readiness().map((r) => `<button type="button" class="card rcell ${tab === r.tab ? 'on' : ''}" data-ptab="${r.tab}">${ring(Math.round((r.done / r.total) * 100), r.k + ' ' + r.center + ' ' + r.sub, r.center)}<div class="rl">${esc(r.k)}</div><div class="small muted">${esc(r.sub)}</div></button>`).join('')}</div>
+      <div class="row" style="margin:12px 0"><a class="btn primary" href="#/brag">Brag sheet (print / PDF)</a><a class="btn" href="#/docs">Documents</a></div>
+      <div class="seg wide" role="tablist">${tabs.map(([k, l]) => `<button type="button" data-ptab="${k}" class="${tab === k ? 'on' : ''}">${l}</button>`).join('')}</div>
+      ${body()}`;
+  }
+  function profActivities() {
+    const acts = sortedActs();
+    const maxH = Math.max(1, ...acts.map(actHours));
+    return `<div class="spread"><h2>Activities <span class="muted small">(Common App allows 10)</span></h2><button class="primary" id="addAct" style="margin-top:1rem">+ Add</button></div>
+      <p class="small muted">Order them by importance — the top 10 go on the Common App. Descriptions are Lily’s words, 150 characters max.</p>
+      ${acts.some(actHours) ? `<div class="card"><h3>Time invested (hours per year)</h3>${acts.filter(actHours).sort((a, b) => actHours(b) - actHours(a)).map((a) => `<div class="hbar"><span class="hl">${esc(a.organization || a.position || 'Activity')}</span><span class="ht"><i class="acc" style="width:${(actHours(a) / maxH) * 100}%"></i></span><span class="hv">${actHours(a).toLocaleString()}</span></div>`).join('')}</div>` : ''}
+      ${acts.map((a, i) => { const len = (a.description || '').length; return `<div class="card act ${i >= 10 ? 'extra' : ''}">
+        <div class="arank"><b>${i + 1}</b><button type="button" class="mv" data-move="activities|${a.id}|-1" aria-label="Move up" ${i === 0 ? 'disabled' : ''}>▲</button><button type="button" class="mv" data-move="activities|${a.id}|1" aria-label="Move down" ${i === acts.length - 1 ? 'disabled' : ''}>▼</button></div>
+        <div class="body" data-act="${a.id}">
+          <div class="spread"><div><div class="title">${esc(a.position || 'Role?')}${a.organization ? ' · ' + esc(a.organization) : ''}</div>
+            <div class="meta">${i < 10 ? '<span class="chip good">On Common App</span>' : '<span class="chip">Extra — brag sheet</span>'}${a.activity_type ? `<span class="chip">${esc(a.activity_type)}</span>` : ''}${gradeChips(a.grades)}${a.timing ? `<span class="chip">${esc(a.timing)}</span>` : ''}</div></div></div>
+          ${a.description ? `<p class="adesc">${esc(a.description)}</p>` : '<p class="adesc muted">Add Lily’s 150-character description.</p>'}
+          <div class="abar"><i style="width:${Math.min(100, (len / 150) * 100)}%" class="${len > 140 ? 'near' : ''}"></i></div>
+          <div class="small muted">${len}/150 characters${a.hours_per_week || a.weeks_per_year ? ` · ${num(a.hours_per_week)} hr/wk × ${num(a.weeks_per_year)} wk = <b>${actHours(a).toLocaleString()} hrs/yr</b>` : ' · hours not set'}${a.continue_college ? ' · continuing in college' : ''}</div>
+        </div></div>`; }).join('') || '<p class="muted">No activities yet.</p>'}`;
+  }
+  function profHonors() {
+    const hs = sortedHonors();
+    return `<div class="spread"><h2>Honors <span class="muted small">(Common App allows 5)</span></h2><button class="primary" id="addHonor" style="margin-top:1rem">+ Add</button></div>
+      ${hs.map((h, i) => `<div class="card act ${i >= 5 ? 'extra' : ''}">
+        <div class="arank"><b>${i + 1}</b><button type="button" class="mv" data-move="honors|${h.id}|-1" aria-label="Move up" ${i === 0 ? 'disabled' : ''}>▲</button><button type="button" class="mv" data-move="honors|${h.id}|1" aria-label="Move down" ${i === hs.length - 1 ? 'disabled' : ''}>▼</button></div>
+        <div class="body" data-honor="${h.id}"><div class="title">★ ${esc(h.title)}</div>
+          <div class="meta">${h.level ? `<span class="chip info">${esc(h.level)}</span>` : '<span class="chip warn">Level?</span>'}${gradeChips(h.grades)}${h.verified ? '<span class="chip good">Verified</span>' : ''}</div>
+          ${h.notes ? `<div class="small muted" style="margin-top:6px">${esc(h.notes)}</div>` : ''}</div></div>`).join('') || '<p class="muted">No honors yet.</p>'}`;
+  }
+  function profEssays() {
+    const es = state.essays.slice().sort((a, b) => (a.due_date || '9999').localeCompare(b.due_date || '9999') || a.title.localeCompare(b.title));
+    const counts = ESSAY_STATUS.map((st) => [st, es.filter((e) => e.status === st).length]);
+    return `<div class="spread"><h2>Essays</h2><button class="primary" id="addEssay" style="margin-top:1rem">+ Add</button></div>
+      <div class="pipe">${counts.map(([st, n]) => `<div class="pp ${n ? 'has' : ''}"><b>${n}</b><span>${esc(st)}</span></div>`).join('')}</div>
+      <p class="small muted">Drafts live in Lily’s own Google Docs or Word files — link them here. This app never writes essay text.</p>
+      ${es.map((e) => { const pct = e.word_limit && e.word_count ? Math.min(100, (e.word_count / e.word_limit) * 100) : 0; return `<div class="card" data-essay="${e.id}" style="cursor:pointer">
+        <div class="spread"><div><h3>${esc(e.title)}</h3><div class="meta row">${e.college_id ? `<span class="chip">${esc(collegeName(e.college_id))}</span>` : '<span class="chip">Common App</span>'}${e.due_date ? dueChip(e.due_date, null, ['Final', 'Submitted'].includes(e.status)) : ''}</div></div><span class="chip ${e.status === 'Submitted' || e.status === 'Final' ? 'good' : e.status === 'Not started' ? '' : 'info'}">${esc(e.status)}</span></div>
+        <div class="abar"><i style="width:${pct}%" class="${e.word_count > e.word_limit ? 'over' : ''}"></i></div>
+        <div class="small muted">${e.word_count ? e.word_count + ' words' : 'No word count yet'}${e.word_limit ? ' of ' + e.word_limit + ' max' : ' · limit not confirmed'}</div>
+        ${safeUrl(e.draft_url) ? `<div style="margin-top:8px"><a class="btn" href="${esc(e.draft_url)}" target="_blank" rel="noopener">Open draft</a></div>` : ''}
+      </div>`; }).join('') || '<p class="muted">No essays yet.</p>'}`;
+  }
+  function profRecs() {
+    return `<div class="spread"><h2>Recommenders</h2><button class="primary" id="addRec" style="margin-top:1rem">+ Add</button></div>
+      ${state.recommenders.map((r) => { const i = REC_STATUS.indexOf(r.status); return `<div class="card" data-rec="${r.id}" style="cursor:pointer">
+        <div class="spread"><div><h3>${esc(r.name || r.role + ' (name TBD)')}</h3><div class="small muted">${esc([r.role, r.subject].filter(Boolean).join(' · '))}${r.for_what ? ' — ' + esc(r.for_what) : ''}</div></div>${r.asked_on ? `<span class="chip">Asked ${fmtDate(r.asked_on)}</span>` : ''}</div>
+        <div class="steps5">${REC_STATUS.map((st, k) => `<span class="${k <= i ? 'on' : ''}"><i></i>${esc(st)}</span>`).join('')}</div>
+      </div>`; }).join('') || '<p class="muted">No recommenders yet.</p>'}`;
+  }
+  function profStory() {
     const sections = [...new Set(state.profile_facts.map((f) => f.section))];
-    return `<div class="spread"><h1>Lily’s profile</h1><button class="primary" id="addFact">+ Fact</button></div>
-      <p class="muted small">Facts for essays and activity lists. Anything not marked verified should be checked before it goes on an application.</p>
-      ${sections.map((s) => `<h2>${esc(s)}</h2>${state.profile_facts.filter((f) => f.section === s).map((f) => `
+    return `<div class="spread"><h2>Story bank</h2><button class="primary" id="addFact" style="margin-top:1rem">+ Add</button></div>
+      <p class="muted small">Raw facts and moments for essays and interviews. Check anything unverified before it goes on an application.</p>
+      ${sections.map((s) => `<h3 class="muted small" style="margin:1rem 0 .4rem;text-transform:uppercase;letter-spacing:.05em">${esc(s)}</h3>${state.profile_facts.filter((f) => f.section === s).map((f) => `
         <div class="card" data-fact="${f.id}" style="cursor:pointer">
           <div class="spread"><div>${esc(f.fact)}</div>${f.verified ? '<span class="chip good">Verified</span>' : '<span class="chip warn">Unverified</span>'}</div>
           ${f.notes ? `<div class="small muted" style="margin-top:4px">${esc(f.notes)}</div>` : ''}
         </div>`).join('')}`).join('')}`;
+  }
+  function viewBrag() {
+    const p = sp(), acts = sortedActs(), hs = sortedHonors();
+    const stats = [['GPA (weighted)', p.gpa_weighted], ['GPA (unweighted)', p.gpa_unweighted], ['SAT', p.sat], ['ACT', p.act], ['Class rank', p.class_rank], ['Dual-enrollment', p.dual_credits]].filter(([, v]) => v);
+    return `<div class="noprint row" style="margin-bottom:12px"><a href="#/profile">← Profile</a><button class="primary" id="printBtn">Print / Save as PDF</button></div>
+      <div class="brag">
+        <header><h1>${esc(p.student_name || 'Lily')}</h1><div>${esc([p.high_school, p.city].filter(Boolean).join(' · '))}${p.grad_year ? ' · Class of ' + esc(p.grad_year) : ''}${p.intended_major ? ' · Intended: ' + esc(p.intended_major) : ''}</div>
+          ${p.headline ? `<p class="bh">${esc(p.headline)}</p>` : ''}</header>
+        ${stats.length ? `<section><h2>Academics</h2><div class="bstats">${stats.map(([k, v]) => `<div><b>${esc(v)}</b><span>${esc(k)}</span></div>`).join('')}</div>${p.stats_verified ? '' : '<p class="bnote">Figures to be confirmed against the official transcript.</p>'}</section>` : ''}
+        <section><h2>Activities &amp; leadership</h2>${acts.map((a) => `<div class="bitem"><div class="bt"><b>${esc(a.position || '')}${a.organization ? ', ' + esc(a.organization) : ''}</b><span>${esc(a.grades ? 'Grades ' + a.grades : '')}${actHours(a) ? ' · ' + actHours(a).toLocaleString() + ' hrs/yr' : ''}</span></div>${a.description ? `<div>${esc(a.description)}</div>` : ''}</div>`).join('')}</section>
+        ${hs.length ? `<section><h2>Honors</h2>${hs.map((h) => `<div class="bitem"><div class="bt"><b>${esc(h.title)}</b><span>${esc([h.level, h.grades ? 'Grades ' + h.grades : ''].filter(Boolean).join(' · '))}</span></div></div>`).join('')}</section>` : ''}
+      </div>`;
+  }
+  function editMain() {
+    const row = sp().id ? sp() : {};
+    openEditor({
+      title: 'Student snapshot', table: 'student_profile', row, noDelete: true,
+      fields: [
+        { pair: [{ k: 'student_name', l: 'Name' }, { k: 'grad_year', l: 'Class of', t: 'number' }] },
+        { pair: [{ k: 'high_school', l: 'High school' }, { k: 'city', l: 'City' }] },
+        { k: 'intended_major', l: 'Intended major' },
+        { k: 'headline', l: 'One-line headline (her words)', max: 150 },
+        { pair: [{ k: 'gpa_weighted', l: 'GPA weighted' }, { k: 'gpa_unweighted', l: 'GPA unweighted' }] },
+        { pair: [{ k: 'sat', l: 'SAT' }, { k: 'act', l: 'ACT' }] },
+        { pair: [{ k: 'class_rank', l: 'Class rank' }, { k: 'dual_credits', l: 'Dual-enrollment credits' }] },
+        { k: 'stats_verified', l: 'Numbers checked against the official transcript', t: 'bool' },
+        { k: 'notes', l: 'Notes', t: 'textarea' }
+      ]
+    });
+  }
+  function editActivity(id) {
+    const row = id ? state.activities.find((a) => a.id === id) : { sort: (Math.max(0, ...state.activities.map((a) => a.sort)) + 10) };
+    openEditor({
+      title: id ? 'Edit activity' : 'New activity', table: 'activities', row,
+      fields: [
+        { k: 'activity_type', l: 'Activity type', t: 'select', o: [['', '— choose —']].concat(ACT_TYPES) },
+        { k: 'position', l: 'Position / leadership', max: 50, p: 'e.g. President' },
+        { k: 'organization', l: 'Organization name', max: 100 },
+        { k: 'description', l: 'Description — Lily’s words (accomplishments, recognition)', t: 'textarea', max: 150 },
+        { k: 'grades', l: 'Participation grade levels', t: 'multi', o: GRADES },
+        { k: 'timing', l: 'Timing', t: 'select', o: [['', '—'], 'School year', 'School breaks', 'All year'] },
+        { pair: [{ k: 'hours_per_week', l: 'Hours per week', t: 'number' }, { k: 'weeks_per_year', l: 'Weeks per year', t: 'number' }] },
+        { k: 'continue_college', l: 'Intends to continue in college', t: 'bool' },
+        { k: 'verified', l: 'Details verified', t: 'bool' },
+        { k: 'notes', l: 'Notes (not on the application)', t: 'textarea' }
+      ]
+    });
+  }
+  function editHonor(id) {
+    const row = id ? state.honors.find((h) => h.id === id) : { sort: (Math.max(0, ...state.honors.map((h) => h.sort)) + 10) };
+    openEditor({
+      title: id ? 'Edit honor' : 'New honor', table: 'honors', row,
+      fields: [
+        { k: 'title', l: 'Honor title', req: true, max: 100 },
+        { k: 'grades', l: 'Grade levels', t: 'multi', o: GRADES },
+        { k: 'level', l: 'Level of recognition', t: 'select', o: [['', '—'], 'School', 'State/Regional', 'National', 'International'] },
+        { k: 'verified', l: 'Verified', t: 'bool' },
+        { k: 'notes', l: 'Notes', t: 'textarea' }
+      ]
+    });
+  }
+  function editEssay(id) {
+    const row = id ? state.essays.find((e) => e.id === id) : { status: 'Not started' };
+    openEditor({
+      title: id ? 'Edit essay' : 'New essay', table: 'essays', row,
+      fields: [
+        { k: 'title', l: 'Essay', req: true },
+        { pair: [{ k: 'college_id', l: 'College', t: 'select', o: [['', 'Common App / all']].concat(state.colleges.map((c) => [c.id, c.name])) }, { k: 'status', l: 'Status', t: 'select', o: ESSAY_STATUS }] },
+        { k: 'prompt', l: 'Prompt (copy from the official page)', t: 'textarea' },
+        { pair: [{ k: 'word_limit', l: 'Word limit', t: 'number' }, { k: 'word_count', l: 'Current word count', t: 'number' }] },
+        { k: 'due_date', l: 'Due', t: 'date' },
+        { k: 'draft_url', l: 'Link to Lily’s draft (Google Doc / OneDrive)', t: 'url' },
+        { k: 'notes', l: 'Notes', t: 'textarea' }
+      ]
+    });
+  }
+  function editRec(id) {
+    const row = id ? state.recommenders.find((r) => r.id === id) : { role: 'Teacher', status: 'To ask' };
+    openEditor({
+      title: id ? 'Edit recommender' : 'New recommender', table: 'recommenders', row,
+      fields: [
+        { pair: [{ k: 'name', l: 'Name' }, { k: 'role', l: 'Role', t: 'select', o: ['Teacher', 'Counselor', 'Coach', 'Employer', 'Other'] }] },
+        { pair: [{ k: 'subject', l: 'Subject / context' }, { k: 'asked_on', l: 'Asked on', t: 'date' }] },
+        { k: 'for_what', l: 'For (colleges / scholarships)' },
+        { k: 'status', l: 'Status', t: 'select', o: REC_STATUS },
+        { k: 'notes', l: 'Notes (brag sheet sent? thank-you?)', t: 'textarea' }
+      ]
+    });
+  }
+  async function moveItem(table, id, dir) {
+    const list = (table === 'activities' ? sortedActs() : sortedHonors());
+    const i = list.findIndex((x) => x.id === id), j = i + dir;
+    if (i < 0 || j < 0 || j >= list.length) return;
+    // Renumber cleanly, then swap the two neighbours.
+    const order = list.map((x) => x.id); [order[i], order[j]] = [order[j], order[i]];
+    const changes = order.map((xid, k) => ({ xid, sort: (k + 1) * 10 })).filter(({ xid, sort }) => (state[table].find((x) => x.id === xid) || {}).sort !== sort);
+    try { for (const c of changes) await save(table, { sort: c.sort }, c.xid); render(); } catch (e) { /* toast shown */ }
+  }
+
+  // ------------------------------------------------------------ documents
+  function fmtSize(b) { b = num(b); return b > 1048576 ? (b / 1048576).toFixed(1) + ' MB' : b > 1024 ? Math.round(b / 1024) + ' KB' : b + ' B'; }
+  function viewDocs() {
+    const cat = sessionGet('docCat') || 'All';
+    const list = state.documents.filter((d) => cat === 'All' || d.category === cat).sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || ''));
+    const counts = Object.fromEntries(DOC_CATS.map((c) => [c, state.documents.filter((d) => d.category === c).length]));
+    return `<div class="spread"><h1>Documents</h1><div class="row"><button id="addLink">+ Link</button><button class="primary" id="addDoc">+ Upload</button></div></div>
+      <div class="alert">One private place for the process. <b>No financial records</b> — tax returns, FAFSA/CSS data, bank or ID numbers stay on the official sites.</div>
+      <div class="doccats">${['All'].concat(DOC_CATS).map((c) => `<button type="button" data-doccat="${esc(c)}" class="${c === cat ? 'on' : ''}">${c === 'All' ? 'All' : DOC_ICON[c] + ' ' + esc(c)} <span>${c === 'All' ? state.documents.length : counts[c]}</span></button>`).join('')}</div>
+      ${list.map(docCard).join('') || '<p class="muted">Nothing here yet. Upload a PDF or photo, or add a link to a Google Doc.</p>'}`;
+  }
+  function docCard(d) {
+    return `<div class="card doc">
+      <div class="dicon" aria-hidden="true">${DOC_ICON[d.category] || '•'}</div>
+      <div class="body"><div class="title">${esc(d.title)}</div>
+        <div class="meta"><span class="chip">${esc(d.category)}</span>${d.college_id ? `<span class="chip info">${esc(collegeName(d.college_id))}</span>` : ''}${d.file_path ? `<span class="chip">${esc((d.file_name || '').split('.').pop().toUpperCase() || 'FILE')} · ${fmtSize(d.size_bytes)}</span>` : '<span class="chip">Link</span>'}<span class="small muted">${d.updated_at ? ago(d.updated_at) : ''}${d.updated_by ? ' by ' + esc(who(d.updated_by)) : ''}</span></div>
+        ${d.notes ? `<div class="small muted" style="margin-top:4px">${esc(d.notes)}</div>` : ''}
+        <div class="row" style="margin-top:8px"><button type="button" class="primary" data-docopen="${d.id}">Open</button><button type="button" data-docedit="${d.id}">Edit</button></div>
+      </div></div>`;
+  }
+  function openDocUpload(defaults) {
+    defaults = defaults || {};
+    $sheet.innerHTML = `<form method="dialog" id="upForm">
+      <h2 style="margin-top:0">Upload a document</h2>
+      <div class="alert">No tax returns, FAFSA/CSS data, bank statements, or ID numbers.</div>
+      <label class="f">File (PDF, photo, Word — up to 25 MB)<input type="file" name="file" required accept=".pdf,.jpg,.jpeg,.png,.heic,.heif,.webp,.doc,.docx,.pptx,.txt,image/*,application/pdf"></label>
+      <label class="f">Title<input name="title" required placeholder="e.g. Unofficial transcript, fall 2026"></label>
+      <div class="two"><label class="f">Category<select name="category">${DOC_CATS.map((c) => `<option ${c === (defaults.category || 'Other') ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></label>
+      <label class="f">College<select name="college_id">${collegeOpts().map(([v, l]) => `<option value="${esc(v)}" ${v === (defaults.college_id || '') ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label></div>
+      <label class="f">Notes<textarea name="notes"></textarea></label>
+      <div class="actions"><div></div><div class="row"><button type="button" id="upCancel">Cancel</button><button type="submit" class="primary" id="upGo">Upload</button></div></div>
+    </form>`;
+    const form = $sheet.querySelector('form');
+    form.file.addEventListener('change', () => { const f = form.file.files[0]; if (f && !form.title.value) form.title.value = f.name.replace(/\.[^.]+$/, ''); });
+    $sheet.querySelector('#upCancel').onclick = () => $sheet.close();
+    form.onsubmit = async (ev) => {
+      ev.preventDefault();
+      const f = form.file.files[0]; if (!f) return;
+      const title = form.title.value.trim();
+      if (FINANCIAL_NAME.test(f.name) || FINANCIAL_NAME.test(title)) { toast('That looks like a financial record. Keep it on the official site, not here.'); return; }
+      if (f.size > 26214400) { toast('File is over 25 MB.'); return; }
+      const btn = $sheet.querySelector('#upGo'); btn.disabled = true; btn.textContent = 'Uploading…';
+      const safe = f.name.replace(/[^A-Za-z0-9._-]+/g, '_').slice(-80);
+      const path = `${form.category.value.replace(/[^A-Za-z]+/g, '-').toLowerCase()}/${Date.now()}-${safe}`;
+      const up = await sb.storage.from('documents').upload(path, f, { contentType: f.type || 'application/octet-stream', upsert: false });
+      if (up.error) { btn.disabled = false; btn.textContent = 'Upload'; toast('Upload failed: ' + up.error.message); return; }
+      try {
+        await save('documents', { title, category: form.category.value, college_id: form.college_id.value || null, notes: form.notes.value.trim() || null, file_path: path, file_name: f.name, mime_type: f.type || null, size_bytes: f.size });
+        $sheet.close(); toast('Uploaded'); render();
+      } catch (e) { await sb.storage.from('documents').remove([path]); btn.disabled = false; btn.textContent = 'Upload'; }
+    };
+    $sheet.showModal();
+  }
+  function editDoc(id, defaults) {
+    const row = id ? state.documents.find((d) => d.id === id) : Object.assign({ category: 'Essays' }, defaults || {});
+    openEditor({
+      title: id ? 'Edit document' : 'Add a link', table: 'documents', row,
+      fields: [
+        { k: 'title', l: 'Title', req: true },
+        { pair: [{ k: 'category', l: 'Category', t: 'select', o: DOC_CATS }, { k: 'college_id', l: 'College', t: 'select', o: collegeOpts() }] },
+        row.file_path ? { k: 'file_name', l: 'File name (stored)', p: '' } : { k: 'link_url', l: 'Link (Google Doc, OneDrive…)', t: 'url', req: true },
+        { k: 'notes', l: 'Notes', t: 'textarea' }
+      ],
+      beforeSave: (out) => {
+        if (FINANCIAL_NAME.test(out.title || '') || FINANCIAL_NAME.test(out.file_name || '')) { toast('That looks like a financial record. Keep it on the official site, not here.'); return false; }
+        if (!row.file_path && !safeUrl(out.link_url)) { toast('Enter a link that starts with https://'); return false; }
+        return true;
+      },
+      onDelete: row.file_path ? async () => { await sb.storage.from('documents').remove([row.file_path]); } : null
+    });
+  }
+  async function openDoc(id) {
+    const d = state.documents.find((x) => x.id === id); if (!d) return;
+    if (!d.file_path) { if (safeUrl(d.link_url)) window.open(d.link_url, '_blank', 'noopener'); return; }
+    const w = window.open('', '_blank'); // open synchronously so iPhone doesn't block it as a pop-up
+    const r = await sb.storage.from('documents').createSignedUrl(d.file_path, 60);
+    if (r.error || !r.data) { if (w) w.close(); toast('Could not open: ' + ((r.error && r.error.message) || 'unknown error')); return; }
+    if (w) w.location.href = r.data.signedUrl; else location.href = r.data.signedUrl;
   }
 
   function viewMore() {
@@ -644,8 +922,9 @@
         <a href="#/week">This week</a>
         <a href="#/offers">Cost &amp; offers</a>
         <a href="#/visits">Campus visits</a>
-        <a href="#/aid">Financial aid</a>
         <a href="#/profile">Lily’s profile</a>
+        <a href="#/docs">Documents</a>
+        <a href="#/aid">Financial aid</a>
         <a href="#/tasks">All tasks</a>
         <a href="#/admin">Backup &amp; export</a>
       </div>
@@ -697,9 +976,14 @@
     const v = val == null ? '' : val;
     const lbl = `<label class="f" for="${id}">${esc(f.l)}`;
     if (f.t === 'select') return `${lbl}<select id="${id}" name="${f.k}">${f.o.map((o) => { const [ov, ol] = Array.isArray(o) ? o : [o, o]; return `<option value="${esc(ov)}" ${String(ov) === String(v) ? 'selected' : ''}>${esc(ol)}</option>`; }).join('')}</select></label>`;
-    if (f.t === 'textarea') return `${lbl}<textarea id="${id}" name="${f.k}" placeholder="${esc(f.p || '')}">${esc(v)}</textarea></label>`;
+    const max = f.max ? ` maxlength="${f.max}" data-max="${f.max}"` : '';
+    if (f.t === 'multi') {
+      const on = String(v).split(',').map((x) => x.trim());
+      return `<fieldset class="f multi"><legend>${esc(f.l)}</legend>${f.o.map((o) => `<label class="pick"><input type="checkbox" name="${f.k}" value="${esc(o)}" ${on.includes(o) ? 'checked' : ''}><span>${esc(o)}</span></label>`).join('')}</fieldset>`;
+    }
+    if (f.t === 'textarea') return `${lbl}<textarea id="${id}" name="${f.k}" placeholder="${esc(f.p || '')}"${max}>${esc(v)}</textarea></label>`;
     if (f.t === 'bool') return `<label class="f row" for="${id}"><input type="checkbox" id="${id}" name="${f.k}" ${v ? 'checked' : ''}> ${esc(f.l)}</label>`;
-    return `${lbl}<input id="${id}" name="${f.k}" type="${f.t || 'text'}" value="${esc(v)}" placeholder="${esc(f.p || '')}" ${f.req ? 'required' : ''}${f.t === 'number' ? ' step="any" inputmode="decimal"' : ''}></label>`;
+    return `${lbl}<input id="${id}" name="${f.k}" type="${f.t || 'text'}" value="${esc(v)}" placeholder="${esc(f.p || '')}" ${f.req ? 'required' : ''}${f.t === 'number' ? ' step="any" inputmode="decimal"' : ''}${max}></label>`;
   }
   const collegeOpts = () => [['', '— none —']].concat(state.colleges.map((c) => [c.id, c.name]));
 
@@ -709,20 +993,21 @@
       <h2 style="margin-top:0">${esc(title)}</h2>
       ${fields.map((f) => (f.pair ? `<div class="two">${f.pair.map((p) => field(p, row[p.k])).join('')}</div>` : field(f, f.k === '_checklist' ? (row.checklist || []).map((c) => (c.done ? '[x] ' : '[ ] ') + c.text).join('\n') : row[f.k]))).join('')}
       <div class="actions">
-        <div>${row.id ? '<button type="button" class="danger" id="edDel">Delete</button>' : ''}</div>
+        <div>${row.id && !opts.noDelete ? '<button type="button" class="danger" id="edDel">Delete</button>' : ''}</div>
         <div class="row"><button type="button" id="edCancel">Cancel</button><button type="submit" class="primary">Save</button></div>
       </div></form>`;
     const flat = fields.flatMap((f) => f.pair || [f]);
     const form = $sheet.querySelector('form');
     $sheet.querySelector('#edCancel').onclick = () => $sheet.close();
-    if (row.id) $sheet.querySelector('#edDel').onclick = async () => {
+    if (row.id && !opts.noDelete) $sheet.querySelector('#edDel').onclick = async () => {
       if (!window.confirm('Delete this permanently?')) return;
-      try { await remove(table, row.id); $sheet.close(); toast('Deleted'); if (opts.onDeleted) opts.onDeleted(); else render(); } catch (e) { /* toast shown */ }
+      try { if (opts.onDelete) await opts.onDelete(); await remove(table, row.id); $sheet.close(); toast('Deleted'); if (opts.onDeleted) opts.onDeleted(); else render(); } catch (e) { /* toast shown */ }
     };
     form.onsubmit = async (ev) => {
       ev.preventDefault();
       const out = {};
       flat.forEach((f) => {
+        if (f.t === 'multi') { const v = [...form.querySelectorAll(`input[name="${f.k}"]:checked`)].map((x) => x.value).join(', '); out[f.k] = v || null; return; }
         const el = form.elements[f.k];
         if (f.t === 'bool') { out[f.k] = el.checked; return; }
         let v = el.value.trim();
@@ -739,6 +1024,12 @@
       if (beforeSave && beforeSave(out, row) === false) return;
       try { const saved = await save(table, out, row.id); $sheet.close(); toast('Saved'); onSaved ? onSaved(saved) : render(); } catch (e) { /* toast shown */ }
     };
+    // Live character counters for fields with Common App limits.
+    form.querySelectorAll('[data-max]').forEach((el) => {
+      const c = document.createElement('span'); c.className = 'cnt'; el.insertAdjacentElement('afterend', c);
+      const up = () => { const n = el.value.length, m = +el.dataset.max; c.textContent = `${n} / ${m}`; c.classList.toggle('near', n >= m * 0.9); };
+      up(); el.addEventListener('input', up);
+    });
     $sheet.showModal();
     const first = form.querySelector('input,select,textarea'); if (first && !row.id) first.focus();
   }
@@ -854,14 +1145,14 @@
   function sessionSet(k, v) { try { sessionStorage.setItem(k, v); } catch (e) { store[k] = v; } }
 
   const NAV = [['#/', 'Home', '⌂'], ['#/calendar', 'Calendar', '▦'], ['#/colleges', 'Colleges', '🏛'], ['#/scholarships', 'Scholarships', '$'], ['#/more', 'More', '⋯']];
-  const TOPNAV = [['#/', 'Home'], ['#/calendar', 'Calendar'], ['#/colleges', 'Colleges'], ['#/scholarships', 'Scholarships'], ['#/offers', 'Cost'], ['#/visits', 'Visits'], ['#/aid', 'Financial aid'], ['#/tasks', 'All tasks'], ['#/profile', 'Profile'], ['#/more', 'More']];
+  const TOPNAV = [['#/', 'Home'], ['#/calendar', 'Calendar'], ['#/colleges', 'Colleges'], ['#/scholarships', 'Scholarships'], ['#/offers', 'Cost'], ['#/visits', 'Visits'], ['#/docs', 'Documents'], ['#/aid', 'Financial aid'], ['#/tasks', 'All tasks'], ['#/profile', 'Profile'], ['#/more', 'More']];
 
   function chrome(show) {
     const top = document.getElementById('topbar'); const tab = document.getElementById('tabbar');
     top.hidden = !show; tab.hidden = !show;
     if (!show) return;
     const h = location.hash || '#/';
-    const base = h.startsWith('#/college/') ? '#/colleges' : h === '#/week' ? '#/calendar' : ['#/aid', '#/profile', '#/admin', '#/tasks', '#/visits', '#/offers'].includes(h) ? '#/more' : h;
+    const base = h.startsWith('#/college/') ? '#/colleges' : h === '#/week' ? '#/calendar' : ['#/aid', '#/profile', '#/admin', '#/tasks', '#/visits', '#/offers', '#/docs', '#/brag'].includes(h) ? '#/more' : h;
     tab.innerHTML = NAV.map(([href, l, ic]) => `<a href="${href}" class="${href === base ? 'on' : ''}"><span class="ic" aria-hidden="true">${ic}</span>${l}</a>`).join('');
     const tbase = h.startsWith('#/college/') ? '#/colleges' : h === '#/week' ? '#/calendar' : h;
     document.getElementById('topnav').innerHTML = TOPNAV.map(([href, l]) => `<a href="${href}" class="${href === tbase ? 'on' : ''}">${l}</a>`).join('');
@@ -884,7 +1175,7 @@
     if (h === '#/calendar' && render._last !== '#/calendar') { sessionSet('calM', ''); sessionSet('calD', ''); }
     let html;
     if (h.startsWith('#/college/')) html = viewCollege(h.slice(10));
-    else html = ({ '#/week': viewWeek, '#/calendar': viewCalendar, '#/colleges': viewColleges, '#/scholarships': viewScholarships, '#/aid': viewAid, '#/profile': viewProfile, '#/more': viewMore, '#/admin': viewAdmin, '#/tasks': viewAllTasks, '#/visits': viewVisits, '#/offers': viewOffers }[h] || viewDashboard)();
+    else html = ({ '#/week': viewWeek, '#/calendar': viewCalendar, '#/colleges': viewColleges, '#/scholarships': viewScholarships, '#/aid': viewAid, '#/profile': viewProfile, '#/more': viewMore, '#/admin': viewAdmin, '#/tasks': viewAllTasks, '#/visits': viewVisits, '#/offers': viewOffers, '#/docs': viewDocs, '#/brag': viewBrag }[h] || viewDashboard)();
     const scroll = window.scrollY;
     $app.innerHTML = html;
     if (render._last === h) window.scrollTo(0, scroll); else window.scrollTo(0, 0);
@@ -902,6 +1193,23 @@
     on('#addFact', () => editFact(null));
     on('#addVisit', (e) => editVisit(null, { college_id: e.currentTarget.dataset.college || null }));
     on('#subBtn', () => openSubscribe());
+    on('#editMain', () => editMain());
+    on('#addAct', () => editActivity(null));
+    on('#addHonor', () => editHonor(null));
+    on('#addEssay', () => editEssay(null));
+    on('#addRec', () => editRec(null));
+    on('#printBtn', () => window.print());
+    on('#addDoc', (e) => openDocUpload({ college_id: e.currentTarget.dataset.college || '' }));
+    on('#addLink', () => editDoc(null));
+    $app.querySelectorAll('[data-ptab]').forEach((b) => b.addEventListener('click', () => { sessionSet('profTab', b.dataset.ptab); render(); }));
+    $app.querySelectorAll('[data-act]').forEach((el) => el.addEventListener('click', () => editActivity(el.dataset.act)));
+    $app.querySelectorAll('[data-honor]').forEach((el) => el.addEventListener('click', () => editHonor(el.dataset.honor)));
+    $app.querySelectorAll('[data-essay]').forEach((el) => el.addEventListener('click', (e) => { if (e.target.closest('a')) return; editEssay(el.dataset.essay); }));
+    $app.querySelectorAll('[data-rec]').forEach((el) => el.addEventListener('click', () => editRec(el.dataset.rec)));
+    $app.querySelectorAll('[data-move]').forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); const [t, id, d] = b.dataset.move.split('|'); moveItem(t, id, +d); }));
+    $app.querySelectorAll('[data-doccat]').forEach((b) => b.addEventListener('click', () => { sessionSet('docCat', b.dataset.doccat); render(); }));
+    $app.querySelectorAll('[data-docopen]').forEach((b) => b.addEventListener('click', () => openDoc(b.dataset.docopen)));
+    $app.querySelectorAll('[data-docedit]').forEach((b) => b.addEventListener('click', () => editDoc(b.dataset.docedit)));
     $app.querySelectorAll('[data-tomonth]').forEach((b) => b.addEventListener('click', () => window.scrollTo(0, 0)));
     $app.querySelectorAll('[data-calnav]').forEach((b) => b.addEventListener('click', () => { sessionSet('calM', b.dataset.calnav); sessionSet('calD', ''); render(); }));
     $app.querySelectorAll('[data-day]').forEach((b) => b.addEventListener('click', () => {
