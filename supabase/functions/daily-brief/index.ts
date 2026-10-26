@@ -28,7 +28,7 @@ function sameToken(a: string, b: string): boolean {
 }
 const reply = (msg: string, status = 200) => new Response(msg, { status, headers: { 'content-type': 'text/plain; charset=utf-8' } });
 
-type Item = { date: string; time?: string | null; title: string; who?: string; tag: string; rank: number; link: string };
+type Item = { date: string; time?: string | null; title: string; who?: string; tag: string; rank: number; link: string; senior?: boolean; event?: boolean };
 
 Deno.serve(async (req) => {
   if (req.method !== 'POST') return reply('Use POST.', 405);
@@ -62,7 +62,7 @@ Deno.serve(async (req) => {
   if (!to.length) return reply('No recipients set.', 400);
 
   const [tasks, colleges, sch] = await Promise.all([
-    sb.from('tasks').select('id,title,due_date,due_time,owner,status,priority,college_id').not('due_date', 'is', null),
+    sb.from('tasks').select('id,title,due_date,due_time,owner,status,priority,college_id,category,is_event').not('due_date', 'is', null),
     sb.from('colleges').select('id,name,deadline,deadline_time,status,plan'),
     sb.from('scholarships').select('id,name,deadline,deadline_time,status').not('deadline', 'is', null),
   ]);
@@ -73,8 +73,9 @@ Deno.serve(async (req) => {
   const items: Item[] = [];
   for (const t of (tasks.data || []) as any[]) {
     if (CLOSED.includes(t.status)) continue;
+    if (t.is_event && t.due_date < today) continue; // past events simply drop off
     const col = t.college_id ? cname.get(t.college_id) : '';
-    items.push({ date: t.due_date, time: t.due_time, title: t.title + (col && !t.title.includes(col) ? ` (${col})` : ''), who: t.owner === 'Parent' ? 'Parents' : t.owner, tag: 'Task', rank: t.priority || 3, link: APP + '#/task/' + t.id });
+    items.push({ date: t.due_date, time: t.due_time, title: t.title + (col && !t.title.includes(col) ? ` (${col})` : ''), who: t.owner === 'Parent' ? 'Parents' : t.owner, tag: t.is_event ? 'Event' : 'Task', rank: t.priority || 3, link: APP + '#/task/' + t.id, senior: t.category === 'Senior year', event: !!t.is_event });
   }
   for (const c of (colleges.data || []) as any[]) {
     if (!c.deadline || COLLEGE_DONE.includes(c.status)) continue;
@@ -85,10 +86,13 @@ Deno.serve(async (req) => {
     items.push({ date: s.deadline, time: s.deadline_time, title: s.name + ' scholarship due', tag: 'Scholarship', rank: 1, link: APP + '#/scholarships' });
   }
   const byWhen = (a: Item, b: Item) => a.date.localeCompare(b.date) || a.rank - b.rank;
-  const overdue = items.filter((i) => i.date < today && i.tag === 'Task').sort((a, b) => a.rank - b.rank || a.date.localeCompare(b.date));
-  const dueToday = items.filter((i) => i.date === today).sort((a, b) => a.rank - b.rank);
-  const week = items.filter((i) => i.date > today && i.date <= addDays(today, 7)).sort(byWhen);
-  const top = dueToday[0] || overdue.find((i) => i.rank <= 1) || week.find((i) => i.rank <= 1) || overdue[0] || week[0] || null;
+  // College items lead the email; senior-year items get their own short section at the end.
+  const college = items.filter((i) => !i.senior);
+  const seniorNext = items.filter((i) => i.senior && i.date >= today && i.date <= addDays(today, 14)).sort(byWhen);
+  const overdue = college.filter((i) => i.date < today && i.tag === 'Task').sort((a, b) => a.rank - b.rank || a.date.localeCompare(b.date));
+  const dueToday = college.filter((i) => i.date === today).sort((a, b) => a.rank - b.rank);
+  const week = college.filter((i) => i.date > today && i.date <= addDays(today, 7)).sort(byWhen);
+  const top = dueToday[0] || overdue.find((i) => i.rank <= 1) || week.find((i) => i.rank <= 1) || overdue[0] || week[0] || seniorNext[0] || null;
   const countdown = items.filter((i) => i.tag === 'Deadline' && i.date >= today && i.date <= addDays(today, 30)).sort(byWhen);
 
   const when = (i: Item) => (i.date === today ? 'Today' : nice(i.date)) + (i.time ? ', ' + i.time : '');
@@ -104,6 +108,7 @@ Deno.serve(async (req) => {
   ${section('Due today', dueToday.filter((i) => i !== top), false)}
   ${section('Overdue', overdue.filter((i) => i !== top), true, 5)}
   ${section('Next 7 days', week.filter((i) => i !== top), true, 6)}
+  ${section('🎓 Senior year (next 2 weeks)', seniorNext.filter((i) => i !== top), true, 4)}
   <p style="margin:22px 0 0"><a href="${APP}" style="display:inline-block;background:#2f6b45;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none;font-weight:600">Open the college plan</a></p>
   <p style="color:#8a948d;font-size:12px;margin:16px 0 0">Lily's College Plan Daily Brief, sent at 7 AM. Mark things done in the app and they drop off tomorrow's email.</p></div>`;
 
@@ -112,7 +117,8 @@ Deno.serve(async (req) => {
     top ? `MOST IMPORTANT: ${top.title} (${when(top)})\n${top.link}` : 'Nothing due in the next week.',
     dueToday.length ? '\nDUE TODAY\n' + dueToday.filter((i) => i !== top).map(tline).join('\n') : '',
     overdue.length ? '\nOVERDUE\n' + overdue.filter((i) => i !== top).slice(0, 5).map(tline).join('\n') : '',
-    week.length ? '\nNEXT 7 DAYS\n' + week.filter((i) => i !== top).slice(0, 6).map(tline).join('\n') : ''].join('\n');
+    week.length ? '\nNEXT 7 DAYS\n' + week.filter((i) => i !== top).slice(0, 6).map(tline).join('\n') : '',
+    seniorNext.length ? '\nSENIOR YEAR (NEXT 2 WEEKS)\n' + seniorNext.filter((i) => i !== top).slice(0, 4).map(tline).join('\n') : ''].join('\n');
   const subject = `Lily's College Plan Daily Brief, ${nice(today)}: ${top ? top.title : 'nothing due this week'}`.slice(0, 140);
 
   const user = Deno.env.get('GMAIL_USER'), pass = Deno.env.get('GMAIL_APP_PASSWORD');

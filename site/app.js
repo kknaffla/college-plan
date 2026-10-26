@@ -3,7 +3,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '2026.10.27-8'; // keep in sync with the ?v= tags in index.html
+  const APP_VERSION = '2026.10.27-9'; // keep in sync with the ?v= tags in index.html
   const CFG = window.APP_CONFIG || {};
   const TZ = CFG.TIME_ZONE || 'America/Detroit';
   const WEEK_START = CFG.WEEK_START || '2026-10-25';
@@ -13,7 +13,7 @@
 
   const TASK_STATUS = ['Not started', 'In progress', 'Waiting on others', 'Submitted', 'Done', 'Not needed'];
   const CLOSED = new Set(['Submitted', 'Done', 'Not needed']);
-  const counts = (t) => t.status !== 'Not needed';
+  const counts = (t) => t.status !== 'Not needed' && !t.is_event;
   const COLLEGE_STATUS = ['Researching', 'Planning', 'In progress', 'Submitted', 'Complete', 'Admitted', 'Waitlisted', 'Denied', 'Not applying'];
   const SCH_STATUS = ['Researching', 'Planning', 'In progress', 'Submitted', 'Awarded', 'Not awarded', 'Not pursuing'];
   const CATEGORIES = ['Admissions', 'School materials', 'Essays', 'Scholarship', 'Financial aid', 'Research', 'Senior year', 'Other'];
@@ -59,7 +59,13 @@
   const who = (uid) => (state.members.find((m) => m.user_id === uid) || {}).display_name || 'Someone';
   const whoName = who;
   const collegeName = (id) => (state.colleges.find((c) => c.id === id) || {}).name || '';
-  const isOpen = (t) => !CLOSED.has(t.status);
+  // Events (concerts, meetings, exams) are dated items, not to-dos: once the date passes they drop off and never show as overdue.
+  const isOpen = (t) => !CLOSED.has(t.status) && !(t.is_event && t.due_date && t.due_date < todayISO());
+  // All / College / Senior switch, remembered per device.
+  const scope = () => { try { return localStorage.getItem('scope') || 'all'; } catch (e) { return 'all'; } };
+  const inScope = (t) => { const sc = scope(); return sc === 'all' || (sc === 'senior' ? t.category === 'Senior year' : t.category !== 'Senior year'); };
+  const scopeEv = (e) => (e.kind === 'task' ? inScope(e.row) : scope() !== 'senior');
+  const scopeBar = () => `<div class="seg scopeseg" role="radiogroup" aria-label="Show">${[['all', 'All'], ['college', 'College'], ['senior', '🎓 Senior']].map(([k, l]) => `<button type="button" role="radio" aria-checked="${scope() === k}" data-scope="${k}" class="${scope() === k ? 'on' : ''}">${l}</button>`).join('')}</div>`;
   const byDue = (a, b) => (a.due_date || '9999') .localeCompare(b.due_date || '9999') || (a.priority - b.priority) || a.title.localeCompare(b.title);
   const num = (v) => (v == null || v === '' ? 0 : Number(v) || 0);
   const money = (v) => (v < 0 ? '−$' : '$') + Math.round(Math.abs(v)).toLocaleString('en-US');
@@ -338,6 +344,7 @@
           ${dueChip(t.due_date, t.due_time, closed)}
           <button type="button" class="chip owner-${esc(t.owner)} ownbtn" data-owner="${t.id}" title="Tap to reassign" aria-label="Owner ${esc(t.owner)}, tap to reassign">${esc(t.owner)} ⇄</button>
           ${col && !opts.hideCollege ? `<span class="chip">${esc(col)}</span>` : ''}
+          ${t.category === 'Senior year' ? '<span class="chip senior">🎓 Senior</span>' : ''}${t.is_event ? '<span class="chip">Event</span>' : ''}
           ${cl.length ? `<span class="chip">${doneCount}/${cl.length} steps</span>` : ''}
           <select class="status" data-status="${t.id}" aria-label="Status">
             ${TASK_STATUS.map((s) => `<option ${s === t.status ? 'selected' : ''}>${s === 'Not needed' && t.status !== s ? 'Not needed…' : s}</option>`).join('')}
@@ -394,14 +401,14 @@
   function viewDashboard() {
     const today = todayISO();
     const who = homeWho();
-    const mine = (t) => who === 'Everyone' || t.owner === who || t.owner === 'Both';
+    const mine = (t) => (who === 'Everyone' || t.owner === who || t.owner === 'Both') && inScope(t);
     const open = state.tasks.filter(isOpen).filter(mine).sort(byDue);
     const overdue = open.filter((t) => t.due_date && t.due_date < today);
     const dueToday = open.filter((t) => t.due_date === today);
     const w = weekWindow();
     const weekAll = state.tasks.filter(mine).filter(counts).filter((t) => t.due_date && t.due_date >= w.start && t.due_date <= w.end);
     const weekDone = weekAll.filter((t) => !isOpen(t)).length;
-    const otherActive = allEvents().filter((e) => e.kind !== 'task' && e.kind !== 'visit' && e.active);
+    const otherActive = allEvents().filter((e) => e.kind !== 'task' && e.kind !== 'visit' && e.active && scopeEv(e));
     const otherOverdue = otherActive.filter((e) => e.date < today);
     const countdown = otherActive.filter((e) => e.date >= today).slice(0, 4);
     const gd = sp().grad_date; const gdn = gd ? daysUntil(gd) : -1;
@@ -412,9 +419,9 @@
     const moreToday = Math.max(0, todayList.length - focus.length);
     // Next 7 days strip.
     const days = []; for (let i = 0; i < 7; i++) days.push(addDays(today, i));
-    const evs = allEvents().filter((e) => e.active && (e.kind !== 'task' || mine(e.row)));
+    const evs = allEvents().filter((e) => e.active && scopeEv(e) && (e.kind !== 'task' || mine(e.row)));
     // Waiting on others: tasks marked waiting/blocked, plus recommenders who agreed but haven't submitted.
-    const waiting = state.tasks.filter(isOpen).filter((t) => t.status === 'Waiting on others' || (t.blocker && t.blocker.trim()))
+    const waiting = state.tasks.filter(isOpen).filter(inScope).filter((t) => t.status === 'Waiting on others' || (t.blocker && t.blocker.trim()))
       .map((t) => ({ title: t.title, on: t.blocker || 'Others', since: t.updated_at, task: t.id }))
       .concat(state.recommenders.filter((r) => ['Asked', 'Agreed'].includes(r.status)).map((r) => ({ title: (r.for_what || 'Recommendation'), on: r.name || r.role, since: r.asked_on ? r.asked_on + 'T12:00:00Z' : r.updated_at, rec: r.id })));
     const applying = state.colleges.filter((c) => c.priority <= 4 && c.status !== 'Not applying').sort((a, b) => a.priority - b.priority);
@@ -431,6 +438,7 @@
     return `
       <div class="spread"><h1>Hi${state.me ? ', ' + esc(state.me.display_name) : ''}</h1>
         <div class="seg" role="tablist" aria-label="Whose tasks">${[['Lily', 'Lily'], ['Parent', state.me && state.me.role === 'parent' ? 'Me' : 'Parent'], ['Everyone', 'All']].map(([k, l]) => `<button type="button" data-who="${k}" class="${who === k ? 'on' : ''}">${esc(l)}</button>`).join('')}</div></div>
+      ${scopeBar()}
       <div class="stats three">
         <button type="button" class="card stat ${nOver ? 'bad' : ''}" data-scrollto="today"><div class="n">${nOver}</div><div class="l">Overdue</div></button>
         <a class="card stat" href="#/week"><div class="n">${weekDone}<small>/${weekAll.length}</small></div><div class="l">Done this week</div><div class="bar"><i style="width:${weekAll.length ? Math.round((weekDone / weekAll.length) * 100) : 0}%"></i></div></a>
@@ -537,7 +545,7 @@
     const first = `${ym}-01`;
     const lead = new Date(Date.UTC(y, mo - 1, 1)).getUTCDay();
     const nDays = new Date(Date.UTC(y, mo, 0)).getUTCDate();
-    const ev = allEvents();
+    const ev = allEvents().filter(scopeEv);
     const byDay = {};
     ev.forEach((e) => { (byDay[e.date] = byDay[e.date] || []).push(e); });
     let sel = sessionGet('calD');
@@ -552,7 +560,7 @@
       const hot = list.some((e) => e.active && e.date < today);
       cells.push(`<button type="button" class="cday ${iso === today ? 'today' : ''} ${iso === sel ? 'sel' : ''} ${dow === 0 || dow === 6 ? 'wkend' : ''} ${iso < today ? 'past' : ''}" data-day="${iso}" aria-label="${fmtDate(iso)}, ${list.length} item${list.length === 1 ? '' : 's'}">
         <span class="dn">${d}</span>
-        <span class="evs">${list.slice(0, 3).map((e) => `<i class="ev ev-${e.kind} ${e.kind === 'task' ? 'owner-' + esc(e.owner) : ''} ${e.active ? '' : 'off'}">${esc(e.title)}</i>`).join('')}${list.length > 3 ? `<i class="ev more">+${list.length - 3}</i>` : ''}</span>
+        <span class="evs">${list.slice(0, 3).map((e) => `<i class="ev ev-${e.kind} ${e.kind === 'task' ? 'owner-' + esc(e.owner) + (e.row.category === 'Senior year' ? ' senior' : '') : ''} ${e.active ? '' : 'off'}">${e.kind === 'task' && e.row.category === 'Senior year' ? '🎓 ' : ''}${esc(e.title)}</i>`).join('')}${list.length > 3 ? `<i class="ev more">+${list.length - 3}</i>` : ''}</span>
         ${hot ? '<span class="flag" aria-hidden="true"></span>' : ''}
       </button>`);
     }
@@ -568,6 +576,7 @@
     const agendaItem = (e) => (e.kind === 'task' ? taskCard(e.row, { expand: true }) : evRow(e));
     return `
       <div class="spread"><h1>Calendar</h1>${calToggle('month')}</div>
+      ${scopeBar()}
       <div class="wallcal">
         <div class="rings" aria-hidden="true"><i></i><i></i></div>
         <div class="wchead">
@@ -580,7 +589,7 @@
       </div>
       <div class="legend small">
         <span><i class="dot ev-task owner-Lily"></i>Lily</span><span><i class="dot ev-task owner-Parent"></i>Parent</span><span><i class="dot ev-task owner-Both"></i>Both</span>
-        <span><i class="dot ev-college"></i>College deadline</span><span><i class="dot ev-sch"></i>Scholarship</span><span><i class="dot ev-visit"></i>Visit</span>
+        <span><i class="dot ev-college"></i>College deadline</span><span><i class="dot ev-sch"></i>Scholarship</span><span><i class="dot ev-visit"></i>Visit</span><span>🎓 Senior year</span>
       </div>
       <div class="row" style="margin:10px 0 0">
         ${ym !== today.slice(0, 7) ? `<button type="button" data-calnav="${today.slice(0, 7)}">Today</button>` : ''}
@@ -1371,8 +1380,10 @@
     let list = state.tasks.slice().sort(byDue);
     if (st === 'Open') list = list.filter(isOpen); else if (st !== 'All') list = list.filter((t) => t.status === st);
     if (own !== 'All') list = list.filter((t) => t.owner === own);
+    list = list.filter(inScope);
     if (q) list = list.filter((t) => [t.title, t.notes, collegeName(t.college_id), t.category].join(' ').toLowerCase().includes(q));
     return `<div class="spread"><h1>All tasks</h1><div class="row"><button id="quickAdd">Paste to add</button><button class="primary" id="addTask">+ Task</button></div></div>
+      ${scopeBar()}
       <div class="filters">
         <input id="tQ" placeholder="Search" value="${esc(sessionGet('tQ') || '')}">
         <select id="tS">${['Open', 'All'].concat(TASK_STATUS).map((o) => `<option ${o === st ? 'selected' : ''}>${o}</option>`).join('')}</select>
@@ -1475,6 +1486,7 @@
         { pair: [{ k: 'due_date', l: 'Due date', t: 'date' }, { k: 'due_time', l: 'Time (ET)', p: 'e.g. 11:59 PM' }] },
         { pair: [{ k: 'college_id', l: 'College', t: 'select', o: collegeOpts() }, { k: 'category', l: 'Category', t: 'select', o: CATEGORIES }] },
         { k: 'priority', l: 'Priority (1 = highest)', t: 'number' },
+        { k: 'is_event', l: 'Event, not a to-do (concert, meeting, game): it drops off after the date and never shows as overdue', t: 'bool' },
         { k: '_checklist', l: 'Checklist (one step per line; start with [x] if done)', t: 'textarea' },
         { k: 'blocker', l: 'Blocked by (leave empty if not blocked)' },
         { k: 'notes', l: 'Notes', t: 'textarea' },
@@ -1679,6 +1691,7 @@
     on('#quickAdd', () => openQuickAdd());
     on('#addSenior', () => editTask(null, { category: 'Senior year', owner: 'Both' }));
     on('#editGrad', () => editGrad());
+    $app.querySelectorAll('[data-scope]').forEach((b) => b.addEventListener('click', () => { try { localStorage.setItem('scope', b.dataset.scope); } catch (e) { /* per-device only */ } render(); }));
     on('#shareSetup', (e) => { e.preventDefault(); openShareSetup(); });
     on('#editMain', () => editMain());
     on('#editTiles', () => editTiles());

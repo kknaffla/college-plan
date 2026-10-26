@@ -439,3 +439,6 @@ revoke all on public.daily_brief from anon, authenticated;
 alter table public.student_profile add column if not exists grad_date  date;
 alter table public.student_profile add column if not exists grad_time  text;
 alter table public.student_profile add column if not exists grad_place text;
+
+-- Events (also in migrations/014_task_events.sql)
+alter table public.tasks add column if not exists is_event boolean not null default false;
