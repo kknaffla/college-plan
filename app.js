@@ -3,7 +3,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '2026.10.26-8'; // keep in sync with the ?v= tags in index.html
+  const APP_VERSION = '2026.10.26-9'; // keep in sync with the ?v= tags in index.html
   const CFG = window.APP_CONFIG || {};
   const TZ = CFG.TIME_ZONE || 'America/Detroit';
   const WEEK_START = CFG.WEEK_START || '2026-10-25';
@@ -81,7 +81,7 @@
     state.visits.forEach((v) => { if (v.visit_date) ev.push({ kind: 'visit', date: v.visit_date, id: v.id, title: (collegeName(v.college_id) || 'Visit') + ' · ' + v.kind, active: v.visit_date >= todayISO(), row: v }); });
     return ev.sort((a, b) => a.date.localeCompare(b.date) || a.kind.localeCompare(b.kind));
   }
-  const EV_ICON = { task: '✓', college: '🏛', sch: '$', visit: '📍' };
+  const EV_ICON = { task: '✓', college: '<svg class="ico sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 9.5 12 5l9 4.5"/><path d="M5 10v8M9.5 10v8M14.5 10v8M19 10v8"/><path d="M3 20h18"/></svg>', sch: '$', visit: '•' };
   // Compact one-line row for non-task deadlines (tasks keep their full card).
   function evRow(e) {
     const href = e.kind === 'college' ? `#/college/${e.id}` : e.kind === 'sch' ? '#/scholarships' : '#/visits';
@@ -148,13 +148,9 @@
 
   function subscribe() {
     if (channel) sb.removeChannel(channel);
-    const dot = document.getElementById('sync');
     channel = sb.channel('family-sync');
     TABLES.forEach((t) => channel.on('postgres_changes', { event: '*', schema: 'public', table: t }, scheduleReload));
-    channel.subscribe((status) => {
-      dot.className = 'sync ' + (status === 'SUBSCRIBED' ? 'live' : status === 'CLOSED' || status === 'CHANNEL_ERROR' ? 'off' : '');
-      dot.title = status === 'SUBSCRIBED' ? 'Live sync on' : 'Sync: ' + status;
-    });
+    channel.subscribe((status) => { state.syncStatus = status; if (state.me && !$sheet.open) chrome(true); });
   }
 
   async function save(table, row, id) {
@@ -481,7 +477,7 @@
       ${vis.length ? vis.map(visitCard).join('') : '<p class="muted small">No visits logged.</p>'}
       <div class="spread"><h2>Documents</h2><button id="addDoc" data-college="${c.id}" style="margin-top:1rem">+ Upload</button></div>
       ${state.documents.filter((d) => d.college_id === c.id).map(docCard).join('') || '<p class="muted small">No documents for this college yet.</p>'}
-      <div class="spread"><h2>Cost</h2><a href="#/offers" class="small" style="margin-top:1.6rem">Compare all →</a></div>
+      <div class="spread"><h2>Cost</h2><a href="#/money" class="small" style="margin-top:1.6rem">Compare all →</a></div>
       ${off ? `<div class="card small"><b>${esc(off.kind)}:</b> cost ${money(om.coa)} − grants &amp; scholarships ${money(om.free)} = <b>net ${money(om.net)}</b>/yr${om.loans ? ` · loans offered ${money(om.loans)}` : ''}</div>` : `<p class="muted small">No estimate yet. <button type="button" class="link" data-offer-new="${c.id}">Add one</button></p>`}
     `;
   }
@@ -966,17 +962,26 @@
     if (w) w.location.href = r.data.signedUrl; else location.href = r.data.signedUrl;
   }
 
+  function viewMoney() {
+    const h = location.hash;
+    const tab = h === '#/aid' ? 'aid' : h === '#/offers' ? 'offers' : (sessionGet('moneyTab') || 'offers');
+    sessionSet('moneyTab', tab);
+    const inner = (tab === 'aid' ? viewAid() : viewOffers()).replace(/<h1>[\s\S]*?<\/h1>/, '');
+    return `<div class="spread"><h1>Money</h1></div>
+      <div class="seg wide" role="tablist" style="margin-bottom:12px"><button type="button" data-mtab="offers" class="${tab === 'offers' ? 'on' : ''}">Cost &amp; offers</button><button type="button" data-mtab="aid" class="${tab === 'aid' ? 'on' : ''}">Aid forms</button></div>
+      ${inner}`;
+  }
+
   function viewMore() {
     return `<h1>More</h1>
-      <div class="card list-links" style="padding-top:0;padding-bottom:0">
-        <a href="#/week">This week</a>
-        <a href="#/offers">Cost &amp; offers</a>
-        <a href="#/visits">Campus visits</a>
-        <a href="#/profile">Lily’s profile</a>
-        <a href="#/docs">Documents</a>
-        <a href="#/aid">Financial aid</a>
-        <a href="#/tasks">All tasks</a>
-        <a href="#/admin">Backup &amp; export</a>
+      <div class="card list-links menu-links" style="padding-top:0;padding-bottom:0">
+        <a href="#/money">${icon('money')}<span>Money <small>cost, offers, aid forms</small></span></a>
+        <a href="#/docs">${icon('docs')}<span>Documents <small>transcripts, essays, letters</small></span></a>
+        <a href="#/week">${icon('calendar')}<span>This week</span></a>
+        <a href="#/tasks">${icon('home')}<span>All tasks</span></a>
+        <a href="#/visits">${icon('colleges')}<span>Campus visits</span></a>
+        <a href="#/brag">${icon('profile')}<span>Brag sheet</span></a>
+        <a href="#/admin">${icon('more')}<span>Backup &amp; export</span></a>
       </div>
       <p class="small muted" style="margin-top:16px">Signed in as ${esc(state.session.user.email)}${state.me ? ' (' + esc(state.me.role) + ')' : ''}</p>
       <button id="signOut">Sign out</button>
@@ -1194,18 +1199,57 @@
   function sessionGet(k) { try { return sessionStorage.getItem(k); } catch (e) { return store[k]; } }
   function sessionSet(k, v) { try { sessionStorage.setItem(k, v); } catch (e) { store[k] = v; } }
 
-  const NAV = [['#/', 'Home', '⌂'], ['#/calendar', 'Calendar', '▦'], ['#/colleges', 'Colleges', '🏛'], ['#/scholarships', 'Scholarships', '$'], ['#/more', 'More', '⋯']];
-  const TOPNAV = [['#/', 'Home'], ['#/calendar', 'Calendar'], ['#/colleges', 'Colleges'], ['#/scholarships', 'Scholarships'], ['#/offers', 'Cost'], ['#/visits', 'Visits'], ['#/docs', 'Documents'], ['#/aid', 'Financial aid'], ['#/tasks', 'All tasks'], ['#/profile', 'Profile'], ['#/more', 'More']];
+  // One consistent line-icon set (24px grid, stroke = currentColor).
+  const ICON = {
+    home: '<path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 10v9.5h13V10"/><path d="M10 19.5v-5h4v5"/>',
+    calendar: '<rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M3.5 9.5h17M8 3v4M16 3v4"/><path d="M8 13h2M14 13h2M8 16.5h2"/>',
+    colleges: '<path d="M3 9.5 12 5l9 4.5"/><path d="M5 10v8M9.5 10v8M14.5 10v8M19 10v8"/><path d="M3 20h18"/>',
+    scholarships: '<circle cx="12" cy="9" r="5.5"/><path d="M12 6.5v5M10.3 7.8c0-.8.8-1.3 1.7-1.3s1.7.5 1.7 1.2c0 1.6-3.4.9-3.4 2.5 0 .7.8 1.3 1.7 1.3s1.7-.5 1.7-1.3"/><path d="m8.5 13.5-1.5 7 5-2.5 5 2.5-1.5-7"/>',
+    profile: '<circle cx="12" cy="8" r="4"/><path d="M4.5 20c.8-4 3.8-6 7.5-6s6.7 2 7.5 6"/>',
+    money: '<rect x="3" y="6.5" width="18" height="12" rx="2"/><path d="M3 10h18"/><circle cx="16.5" cy="14.5" r="1.3"/>',
+    docs: '<path d="M7 3.5h7l4 4V20a.5.5 0 0 1-.5.5h-10A.5.5 0 0 1 7 20z"/><path d="M14 3.5V8h4"/><path d="M9.5 12h6M9.5 15.5h6"/>',
+    more: '<circle cx="5.5" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="18.5" cy="12" r="1.4"/>',
+    menu: '<path d="M4 7h16M4 12h16M4 17h16"/>'
+  };
+  const icon = (k) => `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[k]}</svg>`;
+  // Ordered by how often each page is used.
+  const NAV = [['#/', 'Home', 'home'], ['#/calendar', 'Calendar', 'calendar'], ['#/colleges', 'Colleges', 'colleges'], ['#/scholarships', 'Scholarships', 'scholarships'], ['#/profile', 'Profile', 'profile']];
+  const TOPNAV = NAV.concat([['#/money', 'Money', 'money'], ['#/docs', 'Documents', 'docs'], ['#/more', 'More', 'more']]);
+  const PAGE_TITLE = { '#/': 'Home', '#/calendar': 'Calendar', '#/week': 'This week', '#/colleges': 'Colleges', '#/scholarships': 'Scholarships', '#/profile': 'Profile', '#/brag': 'Brag sheet', '#/money': 'Money', '#/offers': 'Money', '#/aid': 'Money', '#/docs': 'Documents', '#/visits': 'Visits', '#/tasks': 'All tasks', '#/admin': 'Backup', '#/more': 'More' };
+  const SHORT_NAME = { 'University of Michigan': 'U-M', 'Michigan State University': 'MSU', 'Michigan Technological University': 'Michigan Tech', 'Northern Michigan University': 'NMU' };
+  function navBase(h) {
+    if (h.startsWith('#/college/')) return '#/colleges';
+    if (h === '#/week') return '#/calendar';
+    if (h === '#/brag') return '#/profile';
+    if (h === '#/offers' || h === '#/aid') return '#/money';
+    if (['#/visits', '#/tasks', '#/admin'].includes(h)) return '#/more';
+    return h;
+  }
+  function nextDeadlineChip() {
+    const t = todayISO();
+    const e = allEvents().find((x) => x.kind !== 'task' && x.kind !== 'visit' && x.active && x.date >= t);
+    if (!e) return '';
+    const d = daysUntil(e.date);
+    const name = e.kind === 'college' ? (SHORT_NAME[e.row.name] || e.row.name) : e.title;
+    return `<a class="nextchip ${d <= 3 ? 'hot' : d <= 10 ? 'warm' : ''}" href="#/calendar" title="Next deadline: ${esc(e.title)}, ${fmtDate(e.date)}"><span class="nc-name">${esc(name)}</span><b>${d === 0 ? 'today' : d + 'd'}</b></a>`;
+  }
 
   function chrome(show) {
     const top = document.getElementById('topbar'); const tab = document.getElementById('tabbar');
     top.hidden = !show; tab.hidden = !show;
     if (!show) return;
     const h = location.hash || '#/';
-    const base = h.startsWith('#/college/') ? '#/colleges' : h === '#/week' ? '#/calendar' : ['#/aid', '#/profile', '#/admin', '#/tasks', '#/visits', '#/offers', '#/docs', '#/brag'].includes(h) ? '#/more' : h;
-    tab.innerHTML = NAV.map(([href, l, ic]) => `<a href="${href}" class="${href === base ? 'on' : ''}"><span class="ic" aria-hidden="true">${ic}</span>${l}</a>`).join('');
-    const tbase = h.startsWith('#/college/') ? '#/colleges' : h === '#/week' ? '#/calendar' : h;
-    document.getElementById('topnav').innerHTML = TOPNAV.map(([href, l]) => `<a href="${href}" class="${href === tbase ? 'on' : ''}">${l}</a>`).join('');
+    const base = navBase(h);
+    const title = h.startsWith('#/college/') ? (SHORT_NAME[collegeName(h.slice(10))] || collegeName(h.slice(10)) || 'College') : (PAGE_TITLE[h] || 'Home');
+    const live = state.syncStatus === 'SUBSCRIBED', off = ['CLOSED', 'CHANNEL_ERROR', 'TIMED_OUT'].includes(state.syncStatus);
+    top.innerHTML = `
+      <a href="#/" class="brand">${icon('colleges')}<span>College Plan</span></a>
+      <span class="pagetitle">${esc(title)}</span>
+      <nav class="topnav" aria-label="Main">${TOPNAV.map(([href, l, ic]) => `<a href="${href}" class="${href === base ? 'on' : ''}" ${href === base ? 'aria-current="page"' : ''}>${icon(ic)}<span>${l}</span></a>`).join('')}</nav>
+      <span class="tb-right">${nextDeadlineChip()}
+        <span class="syncwrap ${live ? 'live' : off ? 'off' : ''}" title="${live ? 'Live: changes sync between devices' : off ? 'Offline: reconnecting' : 'Connecting'}"><span class="sync" id="sync"></span><span class="synclbl">${live ? 'Live' : off ? 'Offline' : '…'}</span></span>
+        <a class="menubtn ${base === '#/more' || base === '#/money' || base === '#/docs' ? 'on' : ''}" href="#/more" aria-label="Menu">${icon('menu')}</a></span>`;
+    tab.innerHTML = NAV.map(([href, l, ic]) => `<a href="${href}" class="${href === base ? 'on' : ''}" ${href === base ? 'aria-current="page"' : ''}>${icon(ic)}<span>${l}</span></a>`).join('');
   }
 
   function render() {
@@ -1225,7 +1269,7 @@
     if (h === '#/calendar' && render._last !== '#/calendar') { sessionSet('calM', ''); sessionSet('calD', ''); }
     let html;
     if (h.startsWith('#/college/')) html = viewCollege(h.slice(10));
-    else html = ({ '#/week': viewWeek, '#/calendar': viewCalendar, '#/colleges': viewColleges, '#/scholarships': viewScholarships, '#/aid': viewAid, '#/profile': viewProfile, '#/more': viewMore, '#/admin': viewAdmin, '#/tasks': viewAllTasks, '#/visits': viewVisits, '#/offers': viewOffers, '#/docs': viewDocs, '#/brag': viewBrag }[h] || viewDashboard)();
+    else html = ({ '#/week': viewWeek, '#/calendar': viewCalendar, '#/colleges': viewColleges, '#/scholarships': viewScholarships, '#/aid': viewMoney, '#/money': viewMoney, '#/profile': viewProfile, '#/more': viewMore, '#/admin': viewAdmin, '#/tasks': viewAllTasks, '#/visits': viewVisits, '#/offers': viewMoney, '#/docs': viewDocs, '#/brag': viewBrag }[h] || viewDashboard)();
     const scroll = window.scrollY;
     $app.innerHTML = html;
     if (render._last === h) window.scrollTo(0, scroll); else window.scrollTo(0, 0);
@@ -1245,6 +1289,7 @@
     on('#subBtn', () => openSubscribe());
     on('#editMain', () => editMain());
     on('#editTiles', () => editTiles());
+    $app.querySelectorAll('[data-mtab]').forEach((b) => b.addEventListener('click', () => { sessionSet('moneyTab', b.dataset.mtab); if (location.hash !== '#/money') location.hash = '#/money'; else render(); }));
     on('#addAct', () => editActivity(null));
     on('#addHonor', () => editHonor(null));
     on('#addEssay', () => editEssay(null));
