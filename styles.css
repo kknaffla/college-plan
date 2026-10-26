@@ -281,3 +281,5 @@ table.gl td:first-child { font-weight: 600; width: 32%; }
 .otable td { padding: 8px; border-top: 1px solid var(--line); white-space: nowrap; }
 .otable td:first-child { white-space: normal; font-weight: 600; }
 .otable button { padding: 4px 10px; font-size: .8rem; }
+.steps { padding-left: 1.2rem; margin: 8px 0 12px; }
+.steps li { margin: 4px 0; }

@@ -362,12 +362,49 @@
       </div>
       <div class="row" style="margin:10px 0 0">
         ${ym !== today.slice(0, 7) ? `<button type="button" data-calnav="${today.slice(0, 7)}">Today</button>` : ''}
-        <button type="button" id="icsBtn">Add deadlines to iPhone calendar</button>
+        <button type="button" class="primary" id="subBtn">Subscribe in iPhone Calendar</button>
+        <button type="button" class="link" id="icsBtn">or download a one-time file</button>
       </div>
       <h2>${fmtDate(sel, { weekday: 'long', month: 'long' })}</h2>
       ${dayList.length ? dayList.map(agendaItem).join('') : '<p class="muted small">Nothing on this day.</p>'}
       ${upcoming.length ? `<h2>After that</h2>${upcoming.map((e) => (e.kind === 'task' ? taskCard(e.row) : evRow(e))).join('')}` : ''}
     `;
+  }
+
+  // Live subscription: the calendar-feed Edge Function serves open deadlines to anyone holding
+  // the private key in public.calendar_feed (readable only by family members).
+  async function openSubscribe() {
+    const { data, error } = await sb.from('calendar_feed').select('token,rotated_at').eq('id', 1).maybeSingle();
+    if (error || !data) { toast('Could not load the calendar link.'); return; }
+    const https = `${CFG.SUPABASE_URL.replace(/\/$/, '')}/functions/v1/calendar-feed?token=${encodeURIComponent(data.token)}`;
+    const webcal = https.replace(/^https:/, 'webcal:');
+    $sheet.innerHTML = `<form method="dialog" id="subForm">
+      <h2 style="margin-top:0">Live calendar feed</h2>
+      <p class="small">Subscribe once and every deadline, task, and visit stays current on your phone. Changes in the app show up the next time Calendar refreshes.</p>
+      <p><a class="btn primary" href="${esc(webcal)}">Subscribe on this device</a></p>
+      <ol class="small steps">
+        <li>Tap <b>Subscribe on this device</b>, then <b>Subscribe</b>.</li>
+        <li>Set <b>Location</b> to <b>iCloud</b> so it appears on all your Apple devices.</li>
+        <li>Turn <b>Remove Alerts</b> off to keep the 9 AM day-before reminders.</li>
+        <li>Optional: Settings › Calendar › Accounts › Subscribed Calendars to check it.</li>
+      </ol>
+      <label class="f">Link for Google Calendar or another app<input id="subUrl" readonly value="${esc(https)}"></label>
+      <p class="small muted">Anyone with this link can see the deadlines, so share it only with family. Reset makes the old link stop working.</p>
+      <div class="actions"><button type="button" class="danger" id="subReset">Reset link</button>
+        <div class="row"><button type="button" id="subCopy">Copy link</button><button type="button" id="subClose" class="primary">Done</button></div></div>
+    </form>`;
+    $sheet.querySelector('#subClose').onclick = () => $sheet.close();
+    $sheet.querySelector('#subCopy').onclick = async () => {
+      const el = $sheet.querySelector('#subUrl');
+      try { await navigator.clipboard.writeText(el.value); toast('Link copied'); } catch (e) { el.select(); toast('Select the link and copy it'); }
+    };
+    $sheet.querySelector('#subReset').onclick = async () => {
+      if (!window.confirm('Reset the calendar link? Phones subscribed with the old link will stop updating until they subscribe again.')) return;
+      const r = await sb.rpc('rotate_calendar_token');
+      if (r.error) { toast('Reset failed: ' + r.error.message); return; }
+      toast('New link created'); openSubscribe();
+    };
+    if (!$sheet.open) $sheet.showModal();
   }
 
   // .ics file for iPhone/Mac Calendar: all-day events, reminder at 9 AM the day before.
@@ -855,6 +892,7 @@
     on('#addSch', () => editSch(null));
     on('#addFact', () => editFact(null));
     on('#addVisit', (e) => editVisit(null, { college_id: e.currentTarget.dataset.college || null }));
+    on('#subBtn', () => openSubscribe());
     on('#icsBtn', () => { download('lily-college-plan.ics', buildICS(), 'text/calendar'); toast('Calendar file downloaded — open it to add the dates.'); });
     $app.querySelectorAll('[data-calnav]').forEach((b) => b.addEventListener('click', () => { sessionSet('calM', b.dataset.calnav); sessionSet('calD', ''); render(); }));
     $app.querySelectorAll('[data-day]').forEach((b) => b.addEventListener('click', () => { sessionSet('calD', b.dataset.day); render(); }));
