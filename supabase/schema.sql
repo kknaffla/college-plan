@@ -56,7 +56,7 @@ create table if not exists public.tasks (
   due_time    text,
   owner       text not null default 'Lily' check (owner in ('Lily','Parent','Both')),
   status      text not null default 'Not started'
-              check (status in ('Not started','In progress','Waiting on others','Submitted','Done')),
+              check (status in ('Not started','In progress','Waiting on others','Submitted','Done','Not needed')),
   priority    int  not null default 3,
   checklist   jsonb not null default '[]'::jsonb,
   blocker     text,

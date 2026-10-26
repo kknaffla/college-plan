@@ -41,7 +41,7 @@ Deno.serve(async (req) => {
   type Ev = { uid: string; date: string; summary: string; desc: string[] };
   const ev: Ev[] = [];
   for (const t of tasks.data || []) {
-    if (['Submitted', 'Done'].includes(t.status)) continue;
+    if (['Submitted', 'Done', 'Not needed'].includes(t.status)) continue;
     ev.push({ uid: `task-${t.id}`, date: t.due_date, summary: t.title,
       desc: [t.due_time ? 'Due ' + t.due_time : '', 'Owner: ' + t.owner, t.college_id ? 'College: ' + (cname.get(t.college_id) || '') : '', isUrl(t.source_url) ? t.source_url : ''] });
   }

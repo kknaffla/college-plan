@@ -3,7 +3,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '2026.10.27-2'; // keep in sync with the ?v= tags in index.html
+  const APP_VERSION = '2026.10.27-3'; // keep in sync with the ?v= tags in index.html
   const CFG = window.APP_CONFIG || {};
   const TZ = CFG.TIME_ZONE || 'America/Detroit';
   const WEEK_START = CFG.WEEK_START || '2026-10-25';
@@ -11,8 +11,9 @@
   const $app = document.getElementById('app');
   const $sheet = document.getElementById('sheet');
 
-  const TASK_STATUS = ['Not started', 'In progress', 'Waiting on others', 'Submitted', 'Done'];
-  const CLOSED = new Set(['Submitted', 'Done']);
+  const TASK_STATUS = ['Not started', 'In progress', 'Waiting on others', 'Submitted', 'Done', 'Not needed'];
+  const CLOSED = new Set(['Submitted', 'Done', 'Not needed']);
+  const counts = (t) => t.status !== 'Not needed';
   const COLLEGE_STATUS = ['Researching', 'Planning', 'In progress', 'Submitted', 'Complete', 'Admitted', 'Waitlisted', 'Denied', 'Not applying'];
   const SCH_STATUS = ['Researching', 'Planning', 'In progress', 'Submitted', 'Awarded', 'Not awarded', 'Not pursuing'];
   const CATEGORIES = ['Admissions', 'School materials', 'Essays', 'Scholarship', 'Financial aid', 'Research', 'Other'];
@@ -189,7 +190,9 @@
           ${col && !opts.hideCollege ? `<span class="chip">${esc(col)}</span>` : ''}
           ${cl.length ? `<span class="chip">${doneCount}/${cl.length} steps</span>` : ''}
           <select class="status" data-status="${t.id}" aria-label="Status">
-            ${TASK_STATUS.map((s) => `<option ${s === t.status ? 'selected' : ''}>${s}</option>`).join('')}
+            ${TASK_STATUS.map((s) => `<option ${s === t.status ? 'selected' : ''}>${s === 'Not needed' && t.status !== s ? 'Not needed…' : s}</option>`).join('')}
+            <option disabled>──────</option>
+            <option value="__remove">Remove task…</option>
           </select>
         </div>
         ${t.blocker ? `<div class="blocker">⚠ Blocked: ${esc(t.blocker)}</div>` : ''}
@@ -204,7 +207,14 @@
   function wireTasks(root) {
     root.querySelectorAll('[data-status]').forEach((sel) => sel.addEventListener('change', async () => {
       const t = state.tasks.find((x) => x.id === sel.dataset.status);
-      try { await save('tasks', { status: sel.value }, t.id); toast('Status: ' + sel.value); render(); } catch (e) { sel.value = t.status; }
+      const v = sel.value.replace('…', '');
+      if (v === '__remove') {
+        if (!window.confirm(`Remove "${t.title}" permanently?\n\nThis can't be undone. To keep a record instead, choose "Not needed".`)) { sel.value = t.status; return; }
+        try { await remove('tasks', t.id); toast('Task removed'); render(); } catch (e) { sel.value = t.status; }
+        return;
+      }
+      if (v === 'Not needed' && !window.confirm(`Mark "${t.title}" as not needed?\n\nIt leaves Home, the calendar, and progress. Find it again under All tasks › Not needed.`)) { sel.value = t.status; return; }
+      try { await save('tasks', { status: v }, t.id); toast('Status: ' + v); render(); } catch (e) { sel.value = t.status; }
     }));
     root.querySelectorAll('[data-check]').forEach((cb) => cb.addEventListener('change', async () => {
       const t = state.tasks.find((x) => x.id === cb.dataset.check);
@@ -239,7 +249,7 @@
     const overdue = open.filter((t) => t.due_date && t.due_date < today);
     const dueToday = open.filter((t) => t.due_date === today);
     const w = weekWindow();
-    const weekAll = state.tasks.filter(mine).filter((t) => t.due_date && t.due_date >= w.start && t.due_date <= w.end);
+    const weekAll = state.tasks.filter(mine).filter(counts).filter((t) => t.due_date && t.due_date >= w.start && t.due_date <= w.end);
     const weekDone = weekAll.filter((t) => !isOpen(t)).length;
     const otherActive = allEvents().filter((e) => e.kind !== 'task' && e.kind !== 'visit' && e.active);
     const otherOverdue = otherActive.filter((e) => e.date < today);
@@ -318,7 +328,7 @@
   }
 
   function collegeProgress(c) {
-    const ts = state.tasks.filter((t) => t.college_id === c.id);
+    const ts = state.tasks.filter((t) => t.college_id === c.id && counts(t));
     const d = ts.filter((t) => !isOpen(t)).length;
     return { total: ts.length, done: d, pct: ts.length ? Math.round((d / ts.length) * 100) : 0 };
   }
