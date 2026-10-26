@@ -3,7 +3,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '2026.10.26-12'; // keep in sync with the ?v= tags in index.html
+  const APP_VERSION = '2026.10.26-13'; // keep in sync with the ?v= tags in index.html
   const CFG = window.APP_CONFIG || {};
   const TZ = CFG.TIME_ZONE || 'America/Detroit';
   const WEEK_START = CFG.WEEK_START || '2026-10-25';
@@ -228,11 +228,9 @@
   const PART_STATES = ['missing', 'progress', 'done', 'na'];
   const PART_LABEL = { missing: 'Missing', progress: 'In progress', done: 'Done', na: 'Not needed' };
   const PART_MARK = { missing: '', progress: '◐', done: '✓', na: '—' };
-  function homeWho() {
-    const saved = sessionGet('homeWho');
-    if (saved) return saved;
-    return state.me && state.me.role === 'student' ? 'Lily' : 'Parent';
-  }
+  // Home always opens on All; the Lily / Me choice lasts until the page is refreshed.
+  let homeWhoChoice = 'Everyone';
+  function homeWho() { return homeWhoChoice; }
   function viewDashboard() {
     const today = todayISO();
     const who = homeWho();
@@ -1362,7 +1360,7 @@
     on('#editMain', () => editMain());
     on('#editTiles', () => editTiles());
     $app.querySelectorAll('[data-scrollto]').forEach((b) => b.addEventListener('click', () => { const el = document.getElementById(b.dataset.scrollto); if (el) el.scrollIntoView({ block: 'start' }); }));
-    $app.querySelectorAll('[data-who]').forEach((b) => b.addEventListener('click', () => { sessionSet('homeWho', b.dataset.who); render(); }));
+    $app.querySelectorAll('[data-who]').forEach((b) => b.addEventListener('click', () => { homeWhoChoice = b.dataset.who; render(); }));
     $app.querySelectorAll('[data-part]').forEach((b) => b.addEventListener('click', () => { const [cid, k] = b.dataset.part.split('|'); cyclePart(cid, k); }));
     $app.querySelectorAll('[data-ownerfilter]').forEach((a) => a.addEventListener('click', () => { sessionSet('tO', a.dataset.ownerfilter); sessionSet('tS', 'Open'); }));
     $app.querySelectorAll('[data-scopejump]').forEach((b) => b.addEventListener('click', () => { sessionSet('schScope', b.dataset.scopejump); location.hash = '#/scholarships'; }));
