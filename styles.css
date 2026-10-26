@@ -544,3 +544,6 @@ a.rcell { text-decoration: none; color: inherit; }
   .nextchip .nc-name { display: none; }
   .nextchip { padding: 3px; }
 }
+
+.ownbtn { border: 0; cursor: pointer; font: inherit; font-size: .75rem; font-weight: 600; }
+.ownbtn:active { transform: scale(.96); }
