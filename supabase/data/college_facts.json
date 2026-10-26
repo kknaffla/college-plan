@@ -1,6 +1,6 @@
 {
  "00000000-0000-4000-a000-000000000001": {
-  "as_of": "Oct 27, 2026 (Scorecard Jun 2026 release; costs NCES 2024-25)",
+  "as_of": "Oct 27, 2026 (Scorecard Jun 2026; NCES 2024-25 costs; college Common Data Sets 2025-26)",
   "stats": {
    "undergrad_enrollment": 34454,
    "admit_rate": 0.1564,
@@ -24,15 +24,24 @@
   "business": {
    "school": "Stephen M. Ross School of Business (BBA)",
    "admission_model": "Direct first-year admission since Fall 2024: choose Ross on the Common App and submit the Ross BBA Admissions Portfolio (SlideRoom). EA Nov 1; RD and portfolio Feb 1.",
-   "class_size": "About 675 BBA graduates a year (IPEDS 2024-25 completions)",
-   "academic_feel": "One general BBA (no separate majors). Team-based core with the Ross Integrative Semester in junior year and action-based learning for every student.",
-   "recruiting_and_outcomes": "Business grads’ median earnings $96,806 one year after graduating (Scorecard field of study).",
+   "class_size": "534 first-years entered Fall 2025 — 924 admitted from 13,019 applicants (about 7%); 51% from Michigan",
+   "academic_feel": "Core classes in cohort sections of about 80. Ross’s official core grading guideline caps A-range grades at 40% of a class. Junior-year Integrative Semester.",
+   "recruiting_and_outcomes": "Class of 2025: over 98% had offers by Sept 30; median salary over $100K. Financial services 46%, consulting 19%, tech 9%. 279 hiring firms.",
    "signature_programs": [
-    "Ross Integrative Semester (junior-year integrated core + entrepreneurial challenge)",
-    "Action-based learning in sophomore and junior core; ~75% do more via REAL",
+    "Ross Integrative Semester (junior-year integrated core + business challenge)",
+    "Signature Learning Experience every year, starting with BA 100",
     "MAP capstone team projects for sponsor organizations"
    ],
-   "aacsb": true
+   "aacsb": true,
+   "business_clubs": [
+    "BBA Marketing Club",
+    "BBA Finance Club",
+    "MECC Consulting Group (pro bono)",
+    "Michigan Business Women",
+    "Michigan Interactive Investments"
+   ],
+   "how_it_fits_campus": "A school within a school: its own building, cohorts, council and clubs. First-years still take calculus, writing and economics across U-M.",
+   "school_within_school_note": "Selective finance and consulting clubs recruit at Festifall, before classes start, and are interview-heavy (student reporting)."
   },
   "sources": [
    {
@@ -54,11 +63,61 @@
     "label": "Ross BBA core",
     "url": "https://rossweb.bus.umich.edu/academics/curriculum/core-curriculum/bba/",
     "year": "current"
+   },
+   {
+    "label": "U-M Common Data Set 2025-26",
+    "url": "https://obp.umich.edu/wp-content/uploads/pubdata/cds/cds_2025-26_umaa.pdf",
+    "year": "2025-26"
+   },
+   {
+    "label": "Ross BBA Class of 2029",
+    "url": "https://michiganross.umich.edu/news/class-changemakers-meet-michigan-ross-bba-class-2029",
+    "year": "2025"
+   },
+   {
+    "label": "Ross 2025 BBA employment",
+    "url": "https://michiganross.umich.edu/news/michigan-ross-undergraduates-remain-high-demand-secure-top-salaries-according-2025-employment",
+    "year": "2025"
+   },
+   {
+    "label": "Ross BBA grading guideline",
+    "url": "https://rossweb.bus.umich.edu/academics/bba-grading-scales-distribution",
+    "year": "current"
+   },
+   {
+    "label": "U-M first-year housing",
+    "url": "https://housing.umich.edu/first-year-application-instructions/",
+    "year": "2026"
    }
-  ]
+  ],
+  "housing": {
+   "first_year_requirement": "Not required, but 96% of first-years live on campus",
+   "room_and_board": "$17,220 (double room, largest meal plan, 2026-27)",
+   "residence_options": [
+    "Traditional halls on Central, North and Hill",
+    "Theme communities",
+    "Michigan Learning Communities (apply with an essay in the housing application)"
+   ],
+   "business_living_community": null,
+   "application_opens": "Opens after the enrollment deposit; in 2026 it ran Apr 2–May 11. Applying earlier within the window gives no priority.",
+   "notes": "No guarantee of a specific hall; Early Decision admits get no housing priority."
+  },
+  "campus": {
+   "setting": "Ann Arbor, a small-city college town about 40 miles west of Detroit",
+   "pct_in_state": "About 57% of undergrads",
+   "student_orgs": "1,600+ registered organizations",
+   "greek_life": "11% of men, 16% of women",
+   "athletics": "NCAA Division I, Big Ten",
+   "traditions": [
+    "Big Ten football at Michigan Stadium",
+    "Festifall organization fair to start the year",
+    "Large research university with 19 schools and colleges"
+   ],
+   "climate_note": "Southern Michigan winters, far less snow than the U.P."
+  }
  },
  "00000000-0000-4000-a000-000000000002": {
-  "as_of": "Oct 27, 2026 (Scorecard Jun 2026 release; costs NCES 2024-25)",
+  "as_of": "Oct 27, 2026 (Scorecard Jun 2026; NCES 2024-25 costs; college Common Data Sets 2025-26)",
   "stats": {
    "undergrad_enrollment": 41234,
    "admit_rate": 0.848,
@@ -81,16 +140,25 @@
   },
   "business": {
    "school": "Eli Broad College of Business",
-   "admission_model": "No separate application: MSU fall admits who list an eligible business major are considered for direct admission (limited space; test scores not used). To keep it: 28 credits in 3 semesters and a 3.0 GPA.",
-   "class_size": "Finance is the largest major (390 grads in 2024-25), then supply chain (340) and marketing (237)",
-   "academic_feel": "Large college with distinct majors; supply chain management is a national standout.",
-   "recruiting_and_outcomes": "Median earnings one year after graduating: finance $71,484, business admin $73,822, marketing $60,083 (Scorecard).",
+   "admission_model": "No separate application. MSU fall admits listing an eligible major are considered for direct admission to Broad (limited space). Others start as Business Preference and apply after 28+ credits; direct admits keep their spot with a 3.0 GPA.",
+   "class_size": "About 1,170 business graduates in the Class of 2025",
+   "academic_feel": "Large, Michigan-rooted business school. First-years do Wisdom Project interviews with alumni; majors are declared after core courses.",
+   "recruiting_and_outcomes": "Class of 2025: 99% placement; median salary $70,000; 63% start their careers in Michigan. Employers include Deloitte, EY, KPMG, PwC, Ford, GM and Amazon.",
    "signature_programs": [
-    "Supply Chain Management ranked #2 (U.S. News 2027, per Broad)",
-    "Supply Chain Management Career Fair (1,100+ students)",
-    "Direct-admit path for first-years"
+    "Supply chain management, ranked #1–#2 nationally (U.S. News)",
+    "Residential Business Community",
+    "Student Investment Fund",
+    "The Wisdom Project (first-year alumni interviews)"
    ],
-   "aacsb": true
+   "aacsb": true,
+   "business_clubs": [
+    "Accounting Student Association",
+    "MSU Marketing Association",
+    "Supply Chain Management Association",
+    "National Association of Black Accountants",
+    "Phi Chi Theta"
+   ],
+   "how_it_fits_campus": "Many students start as Business Preference in the wider university and join Broad after the secondary review."
   },
   "sources": [
    {
@@ -112,11 +180,56 @@
     "label": "Broad rankings",
     "url": "https://broad.msu.edu/rankings/",
     "year": "2027 ed."
+   },
+   {
+    "label": "MSU Common Data Set 2025-26",
+    "url": "https://ir.msu.edu/-/media/assets/ir/docs/cds/cds-2025-2026.pdf",
+    "year": "2025-26"
+   },
+   {
+    "label": "MSU incoming student housing",
+    "url": "https://liveon.msu.edu/incoming-student-housing",
+    "year": "2027-28"
+   },
+   {
+    "label": "Broad Residential Business Community",
+    "url": "https://broad.msu.edu/undergraduate/opportunities/rbc/",
+    "year": "current"
+   },
+   {
+    "label": "Broad employment report",
+    "url": "https://broad.msu.edu/app/uploads/2026/01/Palmer-Undergrad-Employment-Report-25.pdf",
+    "year": "Class of 2025"
    }
-  ]
+  ],
+  "housing": {
+   "first_year_requirement": "Required: first four semesters on campus (limited exceptions)",
+   "room_and_board": "$12,928 ($5,338 housing + $7,590 food, 2026-27)",
+   "residence_options": [
+    "27 halls in five neighborhoods (Brody, East, North, River Trail, South)",
+    "Living-Learning Communities and Residential Colleges",
+    "Honors housing"
+   ],
+   "business_living_community": "Residential Business Community — first-year business students in East McDonel Hall with reserved class seats and a 1-credit seminar (separate from Broad direct admission)",
+   "application_opens": "Posted for 2027-28: $50 fee, $175 advance payment (refundable before July 15, 2027) and contract due in early May; preferences due in June.",
+   "notes": "Students rank preferences; the office assigns rooms. Fees can be waived if the Student Aid Index is below 0."
+  },
+  "campus": {
+   "setting": "East Lansing, a suburban college town next to the state capital",
+   "pct_in_state": "About 83% of undergrads",
+   "student_orgs": "1,000+ registered organizations",
+   "greek_life": "12% of men, 13% of women",
+   "athletics": "NCAA Division I, Big Ten",
+   "traditions": [
+    "Spartans and Sparty",
+    "Land-grant university with residential colleges",
+    "Five residential neighborhoods with their own dining"
+   ],
+   "climate_note": "Southern Michigan winters, far less snow than the U.P."
+  }
  },
  "00000000-0000-4000-a000-000000000003": {
-  "as_of": "Oct 27, 2026 (Scorecard Jun 2026 release; costs NCES 2024-25)",
+  "as_of": "Oct 27, 2026 (Scorecard Jun 2026; NCES 2024-25 costs; college Common Data Sets 2025-26)",
   "stats": {
    "undergrad_enrollment": 6013,
    "admit_rate": 0.9243,
@@ -140,15 +253,24 @@
   "business": {
    "school": "College of Business",
    "admission_model": "No separate business application: admitted through Michigan Tech’s general admission into a business major, or General Business with up to three semesters to choose.",
-   "class_size": "Small: largest majors graduate about 12–21 students a year (2024-25)",
+   "class_size": "Small: business is about 8% of bachelor’s degrees; college enrollment up 38% in five years",
    "academic_feel": "STEM-focused business at a tech university: business analytics, engineering management, and easy dual majors.",
-   "recruiting_and_outcomes": "Accounting grads’ median earnings $74,373 four years out; finance $79,495 five years out (Scorecard; small cohorts).",
+   "recruiting_and_outcomes": "College cites 96% job placement (year not stated); university-wide 94.6% (2025).",
    "signature_programs": [
-    "Applied Portfolio Management: students manage about $3M in real investments",
-    "New Venture Competition ($30,000, with Central Michigan)",
-    "Dual major with as few as 32 extra credits"
+    "Applied Portfolio Management Program: about $3M real investment fund",
+    "Enterprise Business Initiative / Enterprise teams",
+    "Bob Mark Business Model Competition and New Venture Competition",
+    "Spring-break industry visits"
    ],
-   "aacsb": true
+   "aacsb": true,
+   "business_clubs": [
+    "Applied Portfolio Management Program",
+    "American Marketing Association",
+    "Beta Gamma Sigma",
+    "Omicron Delta Epsilon",
+    "Husky Innovate"
+   ],
+   "how_it_fits_campus": "A small business college inside a STEM university; many students pair business with engineering or computing."
   },
   "sources": [
    {
@@ -170,11 +292,56 @@
     "label": "MTU cost of attendance",
     "url": "https://www.mtu.edu/finaid/tuition/cost/",
     "year": "2026-27"
+   },
+   {
+    "label": "MTU Common Data Set 2025-26",
+    "url": "https://www.mtu.edu/institutional-research/cds/files/cds-2025-2026.xlsx",
+    "year": "2025-26"
+   },
+   {
+    "label": "MTU housing & dining",
+    "url": "https://www.mtu.edu/admissions/life/housing-dining/",
+    "year": "current"
+   },
+   {
+    "label": "MTU business organizations",
+    "url": "https://www.mtu.edu/business/undergraduate/organizations/",
+    "year": "current"
+   },
+   {
+    "label": "MTU Winter Carnival",
+    "url": "https://www.mtu.edu/winter-carnival/about/history/",
+    "year": "current"
    }
-  ]
+  ],
+  "housing": {
+   "first_year_requirement": "Required in the first year. Presidential Scholars (Lily’s likely merit tier) must live on campus two years.",
+   "room_and_board": "$14,321 (2026-27)",
+   "residence_options": [
+    "Traditional halls: Douglass Houghton, McNair, Wadsworth",
+    "First-Year Experience community in Wadsworth",
+    "East Hall suites and Hillside Place apartments (second year on)"
+   ],
+   "business_living_community": null,
+   "application_opens": "Housing contract opens in January after the enrollment deposit; roommate matching early March; roommate choices due June 1.",
+   "notes": "95.6% of first-years live on campus."
+  },
+  "campus": {
+   "setting": "Houghton, a small town on the Keweenaw Waterway near Lake Superior",
+   "pct_in_state": "About 77% of undergrads",
+   "student_orgs": "Many; business college alone lists about a dozen groups",
+   "greek_life": "About 11–12% of undergrads",
+   "athletics": "NCAA Division II (GLIAC); men’s hockey Division I (CCHA)",
+   "traditions": [
+    "Winter Carnival with giant snow statues since the 1920s",
+    "STEM-focused Huskies (black and gold)",
+    "Enterprise teams doing real client projects"
+   ],
+   "climate_note": "Heavy lake-effect snow — over 130 inches in some seasons."
+  }
  },
  "00000000-0000-4000-a000-000000000004": {
-  "as_of": "Oct 27, 2026 (Scorecard Jun 2026 release; costs NCES 2024-25)",
+  "as_of": "Oct 27, 2026 (Scorecard Jun 2026; NCES 2024-25 costs; college Common Data Sets 2025-26)",
   "stats": {
    "undergrad_enrollment": 6684,
    "admit_rate": 0.84,
@@ -197,16 +364,25 @@
   },
   "business": {
    "school": "College of Business",
-   "admission_model": "Direct: NMU’s university-wide admission (2.25+ high school GPA) with no separate business application.",
-   "class_size": "Small: largest majors graduate about 26–64 students a year (2024-25)",
-   "academic_feel": "Hands-on, regional business school with unusual majors such as Ski Area Business Management and Risk Management & Insurance.",
-   "recruiting_and_outcomes": "Accounting grads’ median earnings $56,263 one year out; construction management $76,315 (Scorecard).",
+   "admission_model": "Admitted to NMU directly (2.25+ high school GPA); entry into the College of Business itself comes later — current GPA/credit thresholds weren’t confirmed online.",
+   "class_size": "About 210 business degrees awarded in 2024-25",
+   "academic_feel": "Small, hands-on and entrepreneurial; 19 programs including Ski Area Business Management and Risk Management & Insurance.",
+   "recruiting_and_outcomes": "College cites a $48K average starting salary and 28% with internships (year not stated).",
    "signature_programs": [
-    "Internship Program and Executive Mentorship Program",
+    "Superior Fund student-managed investment fund",
     "The Big Pitch new-venture competition",
-    "AACSB-accredited since 2002"
+    "Internship and Executive Mentorship programs",
+    "Ski Area Business Management"
    ],
-   "aacsb": true
+   "aacsb": true,
+   "business_clubs": [
+    "ENACTUS",
+    "Beta Alpha Psi",
+    "American Marketing Association",
+    "Gamma Iota Sigma",
+    "Society for Human Resource Management"
+   ],
+   "how_it_fits_campus": "A small regional business college; students take NMU liberal studies alongside the business core."
   },
   "sources": [
    {
@@ -228,7 +404,52 @@
     "label": "NMU cost of attendance",
     "url": "https://nmu.edu/financialaid/attendance",
     "year": "2026-27"
+   },
+   {
+    "label": "NMU Common Data Set 2025-26",
+    "url": "https://nmu.edu/institutionaleffectiveness/sites/institutionaleffectiveness/files/2026-01/Northern-Michigan-University-CDS-2025-2026.pdf",
+    "year": "2025-26"
+   },
+   {
+    "label": "NMU housing requirement",
+    "url": "https://nmu.edu/housing/housing-requirement-policy-update",
+    "year": "Fall 2026"
+   },
+   {
+    "label": "NMU College of Business",
+    "url": "https://nmu.edu/business/home",
+    "year": "current"
+   },
+   {
+    "label": "NMU State of the College",
+    "url": "https://nmu.edu/epc/sites/epc/files/2025-10/State-of-the-College-2025.pptx.pdf",
+    "year": "2025"
    }
-  ]
+  ],
+  "housing": {
+   "first_year_requirement": "Required: from Fall 2026 all single undergrads live in the halls (until four semesters, age 21, or other exemptions)",
+   "room_and_board": "$13,680 ($7,150 housing + $6,530 food, 2026-27)",
+   "residence_options": [
+    "The Woods complex (suites by dining)",
+    "The Quad (shared-bedroom suites)",
+    "Spooner Hall apartments"
+   ],
+   "business_living_community": null,
+   "application_opens": "Fall 2027 not posted yet. Apply in MyNMU with a $50 fee and $200 advance payment; room selection in February.",
+   "notes": "Halls are split into houses of 50–60. Add a $150/semester comprehensive fee."
+  },
+  "campus": {
+   "setting": "Marquette, a small city of about 20,000 on Lake Superior",
+   "pct_in_state": "About 76% of undergrads",
+   "student_orgs": "300+ organizations",
+   "greek_life": "Small",
+   "athletics": "NCAA Division II (GLIAC); men’s hockey Division I (CCHA)",
+   "traditions": [
+    "Superior Dome — one of the world’s largest wooden domes",
+    "Outdoor recreation on Lake Superior",
+    "Wildcats"
+   ],
+   "climate_note": "Lake-effect snow; Marquette averages about 149 inches (NWS, via Spectrum News)."
+  }
  }
 }
