@@ -393,3 +393,15 @@ fieldset.multi legend { padding: 0; margin-bottom: 4px; }
   .tilerow { grid-template-columns: minmax(0, 1fr) auto auto auto; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
   .tilerow input:first-child { grid-column: 1 / -1; font-weight: 600; }
 }
+
+/* Outside links: visible, tappable pills */
+a.ext { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 5px 10px; margin: 2px 0; border-radius: 99px;
+  background: var(--info-soft); color: var(--info); border: 1px solid color-mix(in srgb, var(--info) 25%, transparent);
+  font-size: .8rem; font-weight: 600; line-height: 1.2; text-decoration: none; vertical-align: middle; min-height: 30px; }
+a.ext .dom { font-weight: 400; opacity: .8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 14em; }
+a.ext .dom:empty { display: none; }
+a.ext .arr { font-weight: 700; }
+a.ext:hover, a.ext:focus-visible { background: var(--info); color: #fff; }
+@media (prefers-color-scheme: dark) { a.ext:hover, a.ext:focus-visible { color: #131715; } }
+.src { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; }
+@media print { a.ext { border: 0; background: none; padding: 0; } a.ext .arr { display: none; } }

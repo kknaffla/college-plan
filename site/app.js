@@ -3,7 +3,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '2026.10.26-7'; // keep in sync with the ?v= tags in index.html
+  const APP_VERSION = '2026.10.26-8'; // keep in sync with the ?v= tags in index.html
   const CFG = window.APP_CONFIG || {};
   const TZ = CFG.TIME_ZONE || 'America/Detroit';
   const WEEK_START = CFG.WEEK_START || '2026-10-25';
@@ -40,7 +40,9 @@
   // ------------------------------------------------------------ helpers
   const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const safeUrl = (u) => (/^https?:\/\//i.test(u || '') ? u : null);
-  const link = (u, label) => (safeUrl(u) ? `<a href="${esc(u)}" target="_blank" rel="noopener">${esc(label || 'Open')}</a>` : '');
+  // Outside links render as tappable pills: label, site name, and an arrow so it's clear they leave the app.
+  const siteOf = (u) => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch (e) { return ''; } };
+  const link = (u, label) => (safeUrl(u) ? `<a class="ext" href="${esc(u)}" target="_blank" rel="noopener" title="${esc(u)}">${esc(label || 'Open')}<span class="dom">${esc(siteOf(u))}</span><span class="arr" aria-hidden="true">↗</span></a>` : '');
   const todayISO = () => new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
   const addDays = (iso, n) => { const d = new Date(iso + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
   const fmtDate = (iso, opts) => (iso ? new Date(iso + 'T12:00:00Z').toLocaleDateString('en-US', Object.assign({ weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' }, opts || {})) : '');
@@ -118,7 +120,7 @@
   }
   function sourceLine(url, verified) {
     const v = verified ? `Verified ${fmtDate(verified, { weekday: undefined })}` : '<span class="unv">Unverified — confirm with school</span>';
-    return `<div class="src muted">${v}${safeUrl(url) ? ' · ' + link(url, 'Official source') : ''}</div>`;
+    return `<div class="src muted">${v}${safeUrl(url) ? ' ' + link(url, 'Official source') : ''}</div>`;
   }
 
   // ------------------------------------------------------------ data
