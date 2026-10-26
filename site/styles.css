@@ -453,3 +453,39 @@ a.ext:hover, a.ext:focus-visible { background: var(--info); color: #fff; }
 
 .ico.sm { width: 16px; height: 16px; vertical-align: -3px; }
 .evic .ico.sm { width: 18px; height: 18px; }
+
+/* Scholarship scope */
+:root { --sc-local: #2e6b45; --sc-local-soft: #e1f0e6; --sc-state: #2f4f86; --sc-state-soft: #e7ecf5; --sc-college: #7a4b12; --sc-college-soft: #f5ead9; --sc-nat: #6b3d8a; --sc-nat-soft: #efe4f6; }
+@media (prefers-color-scheme: dark) { :root { --sc-local: #8fd3a8; --sc-local-soft: #1f3327; --sc-state: #9db7e6; --sc-state-soft: #1f2838; --sc-college: #e7b35a; --sc-college-soft: #3a2f1a; --sc-nat: #d6b3ee; --sc-nat-soft: #33243d; } }
+.chip.sc-local { background: var(--sc-local-soft); color: var(--sc-local); }
+.chip.sc-state { background: var(--sc-state-soft); color: var(--sc-state); }
+.chip.sc-college { background: var(--sc-college-soft); color: var(--sc-college); }
+.chip.sc-nat { background: var(--sc-nat-soft); color: var(--sc-nat); }
+.scopes { display: grid; grid-template-columns: 0.7fr repeat(4, 1fr); gap: 6px; margin-bottom: 12px; }
+@media (max-width: 640px) { .scopes { grid-template-columns: repeat(3, 1fr); } .scopes .scope-all { grid-column: auto; } }
+.scopes button { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; padding: 8px 10px; border-radius: 12px; text-align: left; border: 1px solid var(--line); background: var(--card); min-width: 0; }
+.scopes button b { font-size: 1.35rem; line-height: 1.1; }
+.scopes button span { font-size: .78rem; font-weight: 700; }
+.scopes button small { font-size: .66rem; color: var(--muted); line-height: 1.2; }
+.scopes button.sc-local { border-color: var(--sc-local); background: var(--sc-local-soft); } .scopes button.sc-local b, .scopes button.sc-local span { color: var(--sc-local); }
+.scopes button.sc-state b, .scopes button.sc-state span { color: var(--sc-state); }
+.scopes button.sc-college b, .scopes button.sc-college span { color: var(--sc-college); }
+.scopes button.sc-nat b, .scopes button.sc-nat span { color: var(--sc-nat); }
+.scopes button.on { outline: 2.5px solid var(--accent); outline-offset: -1px; box-shadow: var(--shadow); }
+.scopehead { display: flex; align-items: baseline; gap: 8px; padding-left: 10px; border-left: 4px solid var(--line); }
+.scopehead.sc-local { border-left-color: var(--sc-local); color: var(--sc-local); }
+.scopehead.sc-state { border-left-color: var(--sc-state); color: var(--sc-state); }
+.scopehead.sc-college { border-left-color: var(--sc-college); color: var(--sc-college); }
+.scopehead.sc-nat { border-left-color: var(--sc-nat); color: var(--sc-nat); }
+
+.scopes button span i { font-style: normal; }
+.scopes button span .sm { display: none; }
+.scopenote { margin: -4px 0 10px; color: var(--sc-local); }
+@media (max-width: 640px) {
+  .scopes { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; }
+  .scopes button { align-items: center; text-align: center; padding: 6px 2px; }
+  .scopes button b { font-size: 1.15rem; }
+  .scopes button span { font-size: .66rem; }
+  .scopes button span .lg, .scopes button small { display: none; }
+  .scopes button span .sm { display: inline; }
+}

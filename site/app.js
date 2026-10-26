@@ -3,7 +3,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '2026.10.26-9'; // keep in sync with the ?v= tags in index.html
+  const APP_VERSION = '2026.10.26-10'; // keep in sync with the ?v= tags in index.html
   const CFG = window.APP_CONFIG || {};
   const TZ = CFG.TIME_ZONE || 'America/Detroit';
   const WEEK_START = CFG.WEEK_START || '2026-10-25';
@@ -482,10 +482,20 @@
     `;
   }
 
+  // Scope: where the award comes from. Local first — smallest applicant pools.
+  const SCOPES = [
+    { k: 'Local', cls: 'sc-local', hint: 'Manistique & U.P. — best odds' },
+    { k: 'State & regional', cls: 'sc-state', hint: 'Michigan & Upper Midwest' },
+    { k: 'College', cls: 'sc-college', hint: 'From her colleges' },
+    { k: 'National', cls: 'sc-nat', hint: 'Biggest pools' }
+  ];
+  const scopeOf = (s) => s.scope || (s.college_id ? 'College' : 'Unsorted');
+  const scopeChip = (s) => { const sc = SCOPES.find((x) => x.k === scopeOf(s)); return `<span class="chip ${sc ? sc.cls : ''}">${esc(scopeOf(s))}</span>`; };
+
   function schCard(s) {
     return `<div class="card" data-sch="${s.id}" style="cursor:pointer">
       <div class="spread"><div><h3>${esc(s.name)}</h3><div class="small muted">${esc(s.sponsor || '')}</div></div>${statusChip(s.status)}</div>
-      <div class="row" style="margin-top:6px">${s.deadline ? dueChip(s.deadline, s.deadline_time, !['Researching', 'Planning', 'In progress'].includes(s.status)) : '<span class="chip">No deadline</span>'}
+      <div class="row" style="margin-top:6px">${scopeChip(s)}${s.deadline ? dueChip(s.deadline, s.deadline_time, !['Researching', 'Planning', 'In progress'].includes(s.status)) : '<span class="chip">No deadline</span>'}
         ${s.renewable ? '<span class="chip info">Renewable</span>' : ''}</div>
       ${s.amount ? `<div class="small" style="margin-top:6px"><b>Amount:</b> ${esc(s.amount)} <span class="muted">(not guaranteed)</span></div>` : ''}
       ${s.next_action ? `<div class="small"><b>Next:</b> ${esc(s.next_action)}</div>` : ''}
@@ -500,13 +510,22 @@
     if (st === 'Active') list = list.filter((s) => ['Researching', 'Planning', 'In progress'].includes(s.status));
     else if (st !== 'All') list = list.filter((s) => s.status === st);
     if (q) list = list.filter((s) => [s.name, s.sponsor, s.eligibility, s.requirements, s.notes, collegeName(s.college_id)].join(' ').toLowerCase().includes(q));
-    return `<div class="spread"><h1>Scholarships</h1><button class="primary" id="addSch">+ Scholarship</button></div>
-      <p class="muted small">Amounts and eligibility are what sponsors publish — nothing here is a promise of an award.</p>
+    const scope = sessionGet('schScope') || 'All';
+    const counts = Object.fromEntries(SCOPES.map((x) => [x.k, list.filter((s) => scopeOf(s) === x.k).length]));
+    const groups = SCOPES.map((x) => x.k).concat(['Unsorted']).filter((k) => scope === 'All' || k === scope)
+      .map((k) => [k, list.filter((s) => scopeOf(s) === k)]).filter(([, l]) => l.length);
+    return `<div class="spread"><h1>Scholarships</h1><button class="primary" id="addSch">+ Add</button></div>
+      <div class="scopes">
+        <button type="button" data-scope="All" class="scope-all ${scope === 'All' ? 'on' : ''}"><b>${list.length}</b><span>All</span></button>
+        ${SCOPES.map((x) => `<button type="button" data-scope="${esc(x.k)}" class="${x.cls} ${scope === x.k ? 'on' : ''}"><b>${counts[x.k]}</b><span><i class="lg">${esc(x.k)}</i><i class="sm">${esc(x.k === 'State & regional' ? 'State' : x.k)}</i></span><small>${esc(x.hint)}</small></button>`).join('')}
+      </div>
+      <p class="small scopenote">★ <b>Local</b> awards have the smallest applicant pools — Lily’s best odds. Tap a tile to filter; <b>All</b> shows everything.</p>
       <div class="filters">
         <input id="schQ" placeholder="Search" value="${esc(sessionGet('schQ') || '')}">
         <select id="schS">${['Active', 'All'].concat(SCH_STATUS).map((o) => `<option ${o === st ? 'selected' : ''}>${o}</option>`).join('')}</select>
       </div>
-      ${list.length ? list.map(schCard).join('') : '<p class="muted">No matches.</p>'}`;
+      <p class="muted small">Amounts and eligibility are what sponsors publish — nothing here is a promise of an award.</p>
+      ${groups.length ? groups.map(([k, l]) => { const sc = SCOPES.find((x) => x.k === k); return `<h2 class="scopehead ${sc ? sc.cls : ''}">${esc(k)} <span class="muted small">${l.length}${sc ? ' · ' + esc(sc.hint) : ''}</span></h2>${l.map(schCard).join('')}`; }).join('') : '<p class="muted">No matches.</p>'}`;
   }
 
   function viewAid() {
@@ -1140,7 +1159,8 @@
       fields: [
         { k: 'name', l: 'Scholarship', req: true },
         { pair: [{ k: 'sponsor', l: 'Sponsor' }, { k: 'college_id', l: 'College (if school-specific)', t: 'select', o: collegeOpts() }] },
-        { pair: [{ k: 'status', l: 'Status', t: 'select', o: SCH_STATUS }, { k: 'amount', l: 'Amount (if published)' }] },
+        { pair: [{ k: 'scope', l: 'Where it’s from', t: 'select', o: [['', '— choose —']].concat(SCOPES.map((x) => x.k)) }, { k: 'status', l: 'Status', t: 'select', o: SCH_STATUS }] },
+        { k: 'amount', l: 'Amount (if published)' },
         { pair: [{ k: 'deadline', l: 'Deadline', t: 'date' }, { k: 'deadline_time', l: 'Time (ET)' }] },
         { k: 'renewable', l: 'Renewable', t: 'bool' },
         { k: 'eligibility', l: 'Eligibility', t: 'textarea' },
@@ -1289,6 +1309,7 @@
     on('#subBtn', () => openSubscribe());
     on('#editMain', () => editMain());
     on('#editTiles', () => editTiles());
+    $app.querySelectorAll('[data-scope]').forEach((b) => b.addEventListener('click', () => { sessionSet('schScope', b.dataset.scope); render(); }));
     $app.querySelectorAll('[data-mtab]').forEach((b) => b.addEventListener('click', () => { sessionSet('moneyTab', b.dataset.mtab); if (location.hash !== '#/money') location.hash = '#/money'; else render(); }));
     on('#addAct', () => editActivity(null));
     on('#addHonor', () => editHonor(null));

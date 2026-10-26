@@ -383,3 +383,6 @@ create policy family_docs_delete on storage.objects for delete to authenticated 
 
 -- ===== from migrations/005_profile_tiles.sql =====
 alter table public.student_profile add column if not exists tiles jsonb;
+
+-- ===== from migrations/006_scholarship_scope.sql =====
+alter table public.scholarships add column if not exists scope text;
