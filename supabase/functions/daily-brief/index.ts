@@ -1,6 +1,7 @@
 // daily-brief: emails Kevin, Janet, and Lily a short morning brief from the college plan.
 // Called by pg_cron (migration 012) with the x-brief-key header from public.daily_brief.
 // Sends only at send_hour America/Detroit, once per day, when enabled. POST ?test=1 sends now to test_recipient only.
+// POST ?note=1 with {subject, text, html} sends a one-off message to the recipients.
 // Secrets (Supabase › Edge Functions › Secrets): GMAIL_USER, GMAIL_APP_PASSWORD (a Google app password, never a real password).
 // Verify JWT stays ON: the cron call sends the public anon key.
 // deno-lint-ignore-file no-explicit-any
@@ -37,6 +38,19 @@ Deno.serve(async (req) => {
   const key = req.headers.get('x-brief-key') || '';
   if (cfgRes.error || !cfg || !key || !sameToken(key, cfg.token)) return reply('Not found', 404);
 
+  // ?note=1 sends a one-off message (body: {subject, text, html}) to the brief recipients, e.g. an introduction.
+  if (new URL(req.url).searchParams.get('note') === '1') {
+    const b: any = await req.json().catch(() => ({}));
+    const list: string[] = cfg.recipients || [];
+    if (!b.subject || !(b.text || b.html) || !list.length) return reply('Need subject, text or html, and recipients.', 400);
+    const u = Deno.env.get('GMAIL_USER'), pw = Deno.env.get('GMAIL_APP_PASSWORD');
+    if (!u || !pw) return reply('Email secrets are not set yet.', 500);
+    try {
+      const tx = nodemailer.createTransport({ host: 'smtp.gmail.com', port: 465, secure: true, auth: { user: u, pass: pw } });
+      await tx.sendMail({ from: `"Lily's College Plan" <${u}>`, to: list.join(', '), subject: String(b.subject), text: b.text ? String(b.text) : undefined, html: b.html ? String(b.html) : undefined });
+    } catch (e) { return reply('Send failed: ' + (e as Error).message, 502); }
+    return reply(`Note sent to ${list.length}: ${b.subject}`);
+  }
   const test = new URL(req.url).searchParams.get('test') === '1';
   const today = ymd(new Date());
   if (!test) {
