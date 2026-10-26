@@ -363,9 +363,8 @@
       <div class="row" style="margin:10px 0 0">
         ${ym !== today.slice(0, 7) ? `<button type="button" data-calnav="${today.slice(0, 7)}">Today</button>` : ''}
         <button type="button" class="primary" id="subBtn">Subscribe in iPhone Calendar</button>
-        <button type="button" class="link" id="icsBtn">or download a one-time file</button>
       </div>
-      <h2>${fmtDate(sel, { weekday: 'long', month: 'long' })}</h2>
+      <div class="spread daydetail" id="dayDetail"><h2>${fmtDate(sel, { weekday: 'long', month: 'long' })}</h2><button type="button" class="link" id="toMonth" style="margin-top:1.6rem">↑ Back to month</button></div>
       ${dayList.length ? dayList.map(agendaItem).join('') : '<p class="muted small">Nothing on this day.</p>'}
       ${upcoming.length ? `<h2>After that</h2>${upcoming.map((e) => (e.kind === 'task' ? taskCard(e.row) : evRow(e))).join('')}` : ''}
     `;
@@ -407,25 +406,6 @@
     if (!$sheet.open) $sheet.showModal();
   }
 
-  // .ics file for iPhone/Mac Calendar: all-day events, reminder at 9 AM the day before.
-  function buildICS() {
-    const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z');
-    const escI = (s) => String(s || '').replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
-    const fold = (l) => { const out = []; while (l.length > 73) { out.push(l.slice(0, 73)); l = ' ' + l.slice(73); } out.push(l); return out.join('\r\n'); };
-    const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Lily College Plan//EN', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH', 'X-WR-CALNAME:Lily College Plan'];
-    const appUrl = location.origin + location.pathname;
-    allEvents().filter((e) => e.active).forEach((e) => {
-      const d = e.date.replace(/-/g, '');
-      const src = e.kind === 'college' ? e.row.source_url : e.kind === 'sch' ? e.row.link : e.kind === 'task' ? e.row.source_url : null;
-      const prefix = { task: '', college: 'DEADLINE: ', sch: 'Scholarship: ', visit: 'Visit: ' }[e.kind];
-      const desc = [e.time ? 'Due ' + e.time : '', e.kind === 'task' ? 'Owner: ' + e.owner : '', safeUrl(src) ? src : '', 'Open the plan: ' + appUrl].filter(Boolean).join('\n');
-      lines.push('BEGIN:VEVENT', `UID:${e.kind}-${e.id}@college-plan`, `DTSTAMP:${stamp}`, `DTSTART;VALUE=DATE:${d}`, `DTEND;VALUE=DATE:${addDays(e.date, 1).replace(/-/g, '')}`,
-        fold('SUMMARY:' + escI(prefix + e.title)), fold('DESCRIPTION:' + escI(desc)), 'TRANSP:TRANSPARENT',
-        'BEGIN:VALARM', 'ACTION:DISPLAY', fold('DESCRIPTION:' + escI(prefix + e.title)), 'TRIGGER:-PT15H', 'END:VALARM', 'END:VEVENT');
-    });
-    lines.push('END:VCALENDAR');
-    return lines.join('\r\n') + '\r\n';
-  }
 
   function viewColleges() {
     const list = state.colleges.slice().sort((a, b) => a.priority - b.priority || a.name.localeCompare(b.name));
@@ -893,9 +873,13 @@
     on('#addFact', () => editFact(null));
     on('#addVisit', (e) => editVisit(null, { college_id: e.currentTarget.dataset.college || null }));
     on('#subBtn', () => openSubscribe());
-    on('#icsBtn', () => { download('lily-college-plan.ics', buildICS(), 'text/calendar'); toast('Calendar file downloaded — open it to add the dates.'); });
+    on('#toMonth', () => window.scrollTo(0, 0));
     $app.querySelectorAll('[data-calnav]').forEach((b) => b.addEventListener('click', () => { sessionSet('calM', b.dataset.calnav); sessionSet('calD', ''); render(); }));
-    $app.querySelectorAll('[data-day]').forEach((b) => b.addEventListener('click', () => { sessionSet('calD', b.dataset.day); render(); }));
+    $app.querySelectorAll('[data-day]').forEach((b) => b.addEventListener('click', () => {
+      sessionSet('calD', b.dataset.day); render();
+      const d = document.getElementById('dayDetail');
+      if (d) d.scrollIntoView({ block: 'start' });
+    }));
     $app.querySelectorAll('[data-visit]').forEach((el) => el.addEventListener('click', () => editVisit(el.dataset.visit)));
     $app.querySelectorAll('[data-offer]').forEach((b) => b.addEventListener('click', () => editOffer(b.dataset.offer)));
     $app.querySelectorAll('[data-offer-new]').forEach((b) => b.addEventListener('click', () => editOffer(null, { college_id: b.dataset.offerNew })));
