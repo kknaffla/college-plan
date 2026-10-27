@@ -442,3 +442,7 @@ alter table public.student_profile add column if not exists grad_place text;
 
 -- Events (also in migrations/014_task_events.sql)
 alter table public.tasks add column if not exists is_event boolean not null default false;
+
+-- 015: application fees
+alter table public.colleges add column if not exists app_fee numeric;
+alter table public.colleges add column if not exists fee_note text;
