@@ -622,3 +622,10 @@ details.donegroup summary { cursor: pointer; font-weight: 600; color: var(--mute
 .scopeseg { margin: 4px 0 12px; }
 .chip.senior { background: var(--lily-soft); color: var(--lily); }
 .ev.ev-task.senior { outline: 1px dashed currentColor; outline-offset: -1px; }
+
+/* Automations (More) */
+.autorow { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.autorow:last-of-type { border-bottom: 0; }
+.autorow button { flex: none; }
+.hourpick { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px 10px; margin: 8px 0; }
+.hourpick label { display: flex; align-items: center; gap: 6px; font-size: .9rem; }

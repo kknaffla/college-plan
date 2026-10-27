@@ -3,7 +3,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '2026.10.27-10'; // keep in sync with the ?v= tags in index.html
+  const APP_VERSION = '2026.10.27-11'; // keep in sync with the ?v= tags in index.html
   const CFG = window.APP_CONFIG || {};
   const TZ = CFG.TIME_ZONE || 'America/Detroit';
   const WEEK_START = CFG.WEEK_START || '2026-10-25';
@@ -288,6 +288,78 @@
       toast('New link created'); openShareSetup();
     };
     if (!$sheet.open) $sheet.showModal();
+  }
+
+  // ------------------------------------------------------------ automations
+  // Scheduled jobs: the daily brief runs on Supabase (moved by set_brief_hour); the email sweep and
+  // scholarship scan run on Kevin's Mac and pick up requested_cron at the next email sweep.
+  let autos = null;
+  const AUTO_GAP_H = { 'daily-brief': 26, 'college-email-sweep': 14, 'lily-scholarship-scan': 8 * 24 };
+  const DOW = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const hourName = (h) => (h === 0 ? 'midnight' : h === 12 ? 'noon' : h < 12 ? h + ' AM' : (h - 12) + ' PM');
+  function cronText(c) {
+    const m = /^0 ([\d,]+) \* \* ([0-6*])$/.exec(c || '');
+    if (!m) return c || '';
+    const hrs = m[1].split(',').map(Number).sort((a, b) => a - b).map(hourName);
+    const when = hrs.length > 1 ? hrs.slice(0, -1).join(', ') + ' and ' + hrs[hrs.length - 1] : hrs[0];
+    return (m[2] === '*' ? 'Daily at ' : DOW[+m[2]] + 's at ') + when;
+  }
+  async function loadAutos() {
+    const { data, error } = await sb.from('automations').select('*').order('sort');
+    autos = error ? [] : data;
+    if (location.hash === '#/more') render();
+  }
+  function autosCard() {
+    if (autos === null) { loadAutos(); return '<p class="small muted">Loading…</p>'; }
+    if (!autos.length) return '<p class="small muted">Automations aren’t set up yet.</p>';
+    return `<div class="card">${autos.map((a) => {
+      const late = a.last_run_at && (Date.now() - new Date(a.last_run_at).getTime()) / 3.6e6 > (AUTO_GAP_H[a.key] || 48);
+      return `<div class="autorow">
+        <div><b>${esc(a.label)}</b><div class="small">${esc(cronText(a.cron))} <span class="muted">· ${a.runs_on === 'Mac' ? 'on Kevin’s Mac' : 'on the server'}</span></div>
+          <div class="small muted">Last run: ${a.last_run_at ? esc(ago(a.last_run_at)) + (a.last_result ? ' · ' + esc(a.last_result) : '') : 'not yet'}
+            ${late ? ' <span class="chip warn">Missed a run?</span>' : ''}</div>
+          ${a.requested_cron ? `<div class="small"><span class="chip info">Pending</span> ${esc(cronText(a.requested_cron))}, applied at the next email sweep</div>` : ''}</div>
+        <button type="button" data-auto="${esc(a.key)}">Change</button></div>`;
+    }).join('')}
+      <p class="small muted" style="margin:8px 0 0">Mac jobs run only while Kevin’s Mac is awake with the Claude app open. Time changes for them apply at the next email sweep (6 AM, noon or 5 PM).</p></div>`;
+  }
+  function editAuto(key) {
+    const a = (autos || []).find((x) => x.key === key); if (!a) return;
+    const m = /^0 ([\d,]+) \* \* ([0-6*])$/.exec(a.requested_cron || a.cron) || [null, '7', '*'];
+    const cur = m[1].split(',').map(Number);
+    const hours = Array.from({ length: 18 }, (_, i) => i + 5);
+    const hourSel = (id, v) => `<select id="${id}">${hours.map((h) => `<option value="${h}" ${h === v ? 'selected' : ''}>${hourName(h)}</option>`).join('')}</select>`;
+    let body;
+    if (key === 'college-email-sweep') {
+      body = `<p class="small">Pick up to 4 times. Keep one before the brief so morning emails make it in.</p>
+        <div class="hourpick">${hours.map((h) => `<label><input type="checkbox" value="${h}" ${cur.includes(h) ? 'checked' : ''}> ${hourName(h)}</label>`).join('')}</div>`;
+    } else if (key === 'lily-scholarship-scan') {
+      body = `<div class="two"><label class="f">Day<select id="auDay">${DOW.map((d, i) => `<option value="${i}" ${String(i) === m[2] ? 'selected' : ''}>${d}</option>`).join('')}</select></label>
+        <label class="f">Time${hourSel('auHour', cur[0])}</label></div>`;
+    } else {
+      body = `<label class="f">Send at${hourSel('auHour', cur[0])}</label><p class="small muted">Takes effect right away (Detroit time).</p>`;
+    }
+    $sheet.innerHTML = `<form method="dialog"><h2 style="margin-top:0">${esc(a.label)}</h2>${body}
+      <div class="actions"><button type="button" id="auCancel">Cancel</button><button type="button" class="primary" id="auSave">Save</button></div></form>`;
+    $sheet.querySelector('#auCancel').onclick = () => $sheet.close();
+    $sheet.querySelector('#auSave').onclick = async () => {
+      let r;
+      if (key === 'daily-brief') {
+        r = await sb.rpc('set_brief_hour', { h: +$sheet.querySelector('#auHour').value });
+      } else {
+        let cron;
+        if (key === 'college-email-sweep') {
+          const hs = [...$sheet.querySelectorAll('.hourpick input:checked')].map((x) => +x.value);
+          if (!hs.length || hs.length > 4) { toast('Pick 1 to 4 times'); return; }
+          cron = `0 ${hs.join(',')} * * *`;
+        } else cron = `0 ${$sheet.querySelector('#auHour').value} * * ${$sheet.querySelector('#auDay').value}`;
+        r = await sb.from('automations').update({ requested_cron: cron === a.cron ? null : cron, requested_at: cron === a.cron ? null : new Date().toISOString() }).eq('key', key);
+      }
+      if (r.error) { toast('Could not save: ' + r.error.message); return; }
+      $sheet.close(); toast(key === 'daily-brief' ? 'Brief time changed' : 'Saved; applies at the next email sweep');
+      autos = null; render();
+    };
+    $sheet.showModal();
   }
 
   // ------------------------------------------------------------ senior year
@@ -1371,6 +1443,8 @@
         <a href="#/brag">${icon('profile')}<span>Brag sheet</span></a>
         <a href="#/admin">${icon('more')}<span>Backup &amp; export</span></a>
       </div>
+      <h2>Automations</h2>
+      ${autosCard()}
       <h2>Appearance</h2>
       <div class="seg wide themeseg" role="radiogroup" aria-label="Appearance">${[['auto', 'Match phone'], ['light', 'Light'], ['dark', 'Dark']].map(([k, l]) => `<button type="button" role="radio" aria-checked="${currentTheme() === k}" data-theme-pick="${k}" class="${currentTheme() === k ? 'on' : ''}">${l}</button>`).join('')}</div>
       <p class="small muted">Saved on this device only, so everyone can choose their own.</p>
@@ -1700,6 +1774,7 @@
     on('#editGrad', () => editGrad());
     $app.querySelectorAll('[data-scope]').forEach((b) => b.addEventListener('click', () => { try { localStorage.setItem('scope', b.dataset.scope); } catch (e) { /* per-device only */ } render(); }));
     on('#shareSetup', (e) => { e.preventDefault(); openShareSetup(); });
+    $app.querySelectorAll('[data-auto]').forEach((b) => b.addEventListener('click', () => editAuto(b.dataset.auto)));
     on('#editMain', () => editMain());
     on('#editTiles', () => editTiles());
     $app.querySelectorAll('[data-scrollto]').forEach((b) => b.addEventListener('click', () => { const el = document.getElementById(b.dataset.scrollto); if (el) el.scrollIntoView({ block: 'start' }); }));
