@@ -3,7 +3,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '2026.10.27-9'; // keep in sync with the ?v= tags in index.html
+  const APP_VERSION = '2026.10.27-10'; // keep in sync with the ?v= tags in index.html
   const CFG = window.APP_CONFIG || {};
   const TZ = CFG.TIME_ZONE || 'America/Detroit';
   const WEEK_START = CFG.WEEK_START || '2026-10-25';
@@ -492,6 +492,7 @@
     const d = ts.filter((t) => !isOpen(t)).length;
     return { total: ts.length, done: d, pct: ts.length ? Math.round((d / ts.length) * 100) : 0 };
   }
+  const feeChip = (c) => (c.app_fee == null ? '' : `<span class="chip ${Number(c.app_fee) ? '' : 'ok'}">${Number(c.app_fee) ? 'Fee ' + money(c.app_fee) : 'Free to apply'}</span>`);
   function collegeCard(c) {
     const p = collegeProgress(c);
     return `<a class="card" href="#/college/${c.id}">
@@ -501,6 +502,7 @@
         <span class="chip ${c.plan === 'ED' ? 'bad' : 'info'}">${esc(c.plan)}${c.plan === 'ED' ? ' · binding' : ''}</span>
         ${c.deadline ? dueChip(c.deadline, c.deadline_time, ['Submitted', 'Complete', 'Admitted'].includes(c.status)) : '<span class="chip">No deadline set</span>'}
         ${c.deadline && !c.verified_on ? '<span class="chip warn">Unverified</span>' : ''}
+        ${feeChip(c)}
       </div>
       <div class="bar"><i style="width:${p.pct}%"></i></div>
       <div class="small muted">${p.done}/${p.total} tasks done</div>
@@ -663,7 +665,10 @@
 
   function viewColleges() {
     const list = state.colleges.slice().sort((a, b) => a.priority - b.priority || a.name.localeCompare(b.name));
+    const feeCols = list.filter((c) => c.app_fee != null && c.status !== 'Not applying');
+    const feeTotal = feeCols.reduce((a, c) => a + Number(c.app_fee || 0), 0);
     return `<div class="spread"><h1>Colleges</h1><div class="row"><a class="btn primary" href="#/compare">Compare</a><button id="addCollege">+ Add</button></div></div>
+      ${feeCols.length ? `<p class="small"><b>Application fees:</b> ${money(feeTotal)} total · ${feeCols.map((c) => `${esc(TRACK_NAME[c.name] || c.name)} ${Number(c.app_fee) ? money(c.app_fee) : 'free'}`).join(' · ')} <span class="muted">(before any waiver)</span></p>` : ''}
       <div class="grid">${list.map(collegeCard).join('')}</div>`;
   }
 
@@ -688,6 +693,7 @@
         ${c.route ? `<p class="small"><b>Route:</b> ${esc(c.route)}</p>` : ''}
         ${c.deadline ? sourceLine(c.source_url, c.verified_on) : (safeUrl(c.source_url) ? `<div class="src">${link(c.source_url, 'Official site')}</div>` : '')}
         <div class="row" style="margin-top:10px">${safeUrl(c.app_url) ? `<a class="btn primary" href="${esc(c.app_url)}" target="_blank" rel="noopener">Open application portal</a>` : ''}</div>
+        ${c.app_fee != null || c.fee_note ? `<p class="small"><b>Application fee:</b> ${c.app_fee == null ? '—' : Number(c.app_fee) ? money(c.app_fee) : 'Free'}${c.fee_note ? ' — ' + esc(c.fee_note) : ''}</p>` : ''}
         ${c.notes ? `<p class="small pre">${esc(c.notes)}</p>` : ''}
         <p class="small"><b>Submission receipt:</b> ${c.submitted_on ? 'Submitted ' + fmtDate(c.submitted_on) : 'Not submitted yet'}${c.receipt_note ? ' — ' + esc(c.receipt_note) : ''}</p>
       </div>
@@ -1507,6 +1513,7 @@
         { pair: [{ k: 'deadline', l: 'Deadline', t: 'date' }, { k: 'deadline_time', l: 'Time (ET)' }] },
         { pair: [{ k: 'source_url', l: 'Official deadline source', t: 'url' }, { k: 'verified_on', l: 'Date verified', t: 'date' }] },
         { k: 'app_url', l: 'Application portal link', t: 'url' },
+        { pair: [{ k: 'app_fee', l: 'Application fee ($, 0 = free)', t: 'number' }, { k: 'fee_note', l: 'Fee waiver / free dates' }] },
         { pair: [{ k: 'submitted_on', l: 'Submitted on', t: 'date' }, { k: 'priority', l: 'Priority', t: 'number' }] },
         { k: 'receipt_note', l: 'Receipt / confirmation note', p: 'Confirmation # or where the PDF is saved' },
         { k: 'notes', l: 'Notes (essays, recommendations, transcripts, aid)', t: 'textarea' }
