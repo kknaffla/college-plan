@@ -3,7 +3,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '2026.10.27-11'; // keep in sync with the ?v= tags in index.html
+  const APP_VERSION = '2026.10.28-1'; // keep in sync with the ?v= tags in index.html
   const CFG = window.APP_CONFIG || {};
   const TZ = CFG.TIME_ZONE || 'America/Detroit';
   const WEEK_START = CFG.WEEK_START || '2026-10-25';
@@ -1432,6 +1432,7 @@
   function viewMore() {
     return `<h1>More</h1>
       <div class="card list-links menu-links" style="padding-top:0;padding-bottom:0">
+        <a href="/">${icon('home')}<span>Family home <small>back to the Knaffla Family page</small></span></a>
         <a href="#/money">${icon('money')}<span>Money <small>cost, offers, aid forms</small></span></a>
         <a href="#/docs">${icon('docs')}<span>Documents <small>transcripts, essays, letters</small></span></a>
         <a href="#/compare">${icon('colleges')}<span>Compare colleges <small>side by side, fit score</small></span></a>
