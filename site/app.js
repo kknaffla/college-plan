@@ -3,7 +3,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '2026.10.28-1'; // keep in sync with the ?v= tags in index.html
+  const APP_VERSION = '2026.10.28-2'; // keep in sync with the ?v= tags in index.html
   const CFG = window.APP_CONFIG || {};
   const TZ = CFG.TIME_ZONE || 'America/Detroit';
   const WEEK_START = CFG.WEEK_START || '2026-10-25';
@@ -803,29 +803,69 @@
     </div>`;
   }
 
+  // Pursuing decision, from the status. Planning / In progress / Submitted = pursuing.
+  const SCH_VIEWS = [
+    ['Pursuing', ['Planning', 'In progress', 'Submitted']],
+    ['Deciding', ['Researching']],
+    ['Not pursuing', ['Not pursuing']],
+    ['All', null]
+  ];
+  const schView = (s) => (SCH_VIEWS.find(([, st]) => st && st.includes(s.status)) || ['Results'])[0];
+  function schRow(s) {
+    const d = s.deadline ? daysUntil(s.deadline) : null;
+    const open = !['Submitted', 'Awarded', 'Not awarded', 'Not pursuing'].includes(s.status);
+    const urg = d === null || !open ? '' : d < 0 ? 'past' : d <= 14 ? 'hot' : d <= 30 ? 'warm' : '';
+    const tile = s.deadline
+      ? `<div class="dtile ${urg}"><span>${esc(fmtDate(s.deadline, { weekday: undefined, month: 'short', day: undefined }))}</span><b>${esc(s.deadline.slice(8).replace(/^0/, ''))}</b><small>${!open ? '' : d < 0 ? 'passed' : d === 0 ? 'today' : d + 'd'}</small></div>`
+      : '<div class="dtile none"><span>No</span><b>—</b><small>date</small></div>';
+    const v = schView(s);
+    const btns = v === 'Deciding' ? `<button type="button" class="primary" data-pursue="${s.id}">Pursue</button><button type="button" data-skip="${s.id}">Skip</button>`
+      : v === 'Pursuing' && s.status !== 'Submitted' ? `<button type="button" data-skip="${s.id}">Skip</button>`
+      : v === 'Not pursuing' ? `<button type="button" data-pursue="${s.id}">Pursue</button>` : '';
+    return `<div class="card schrow" data-sch="${s.id}" style="cursor:pointer">
+      ${tile}
+      <div class="schbody">
+        <div class="spread"><h3>${esc(s.name)}</h3>${statusChip(s.status)}</div>
+        <div class="small muted">${esc(s.sponsor || '')}${s.deadline_time ? ' · due ' + esc(s.deadline_time) : ''}</div>
+        <div class="row" style="margin-top:4px">${scopeChip(s)}${s.amount ? `<span class="chip">${esc(s.amount.length > 48 ? s.amount.slice(0, 46) + '…' : s.amount)}</span>` : ''}${s.renewable ? '<span class="chip info">Renewable</span>' : ''}</div>
+        ${s.next_action ? `<div class="small" style="margin-top:4px"><b>Next:</b> ${esc(s.next_action)}</div>` : ''}
+        ${btns ? `<div class="row schbtns">${btns}</div>` : ''}
+      </div>
+    </div>`;
+  }
+
   function viewScholarships() {
     const q = (sessionGet('schQ') || '').toLowerCase();
-    const st = sessionGet('schS') || 'Active';
-    let list = state.scholarships.slice().sort((a, b) => (a.deadline || '9999').localeCompare(b.deadline || '9999'));
-    if (st === 'Active') list = list.filter((s) => ['Researching', 'Planning', 'In progress'].includes(s.status));
-    else if (st !== 'All') list = list.filter((s) => s.status === st);
-    if (q) list = list.filter((s) => [s.name, s.sponsor, s.eligibility, s.requirements, s.notes, collegeName(s.college_id)].join(' ').toLowerCase().includes(q));
     const scope = sessionGet('schScope') || 'All';
-    const counts = Object.fromEntries(SCOPES.map((x) => [x.k, list.filter((s) => scopeOf(s) === x.k).length]));
-    const groups = SCOPES.map((x) => x.k).concat(['Unsorted']).filter((k) => scope === 'All' || k === scope)
-      .map((k) => [k, list.filter((s) => scopeOf(s) === k)]).filter(([, l]) => l.length);
+    let base = state.scholarships.slice();
+    if (scope !== 'All') base = base.filter((s) => scopeOf(s) === scope);
+    if (q) base = base.filter((s) => [s.name, s.sponsor, s.eligibility, s.requirements, s.notes, collegeName(s.college_id)].join(' ').toLowerCase().includes(q));
+    const n = Object.fromEntries(SCH_VIEWS.map(([k, st]) => [k, st ? base.filter((s) => st.includes(s.status)).length : base.length]));
+    const view = sessionGet('schView') || (n.Pursuing ? 'Pursuing' : 'Deciding');
+    const st = (SCH_VIEWS.find(([k]) => k === view) || SCH_VIEWS[0])[1];
+    const list = (st ? base.filter((s) => st.includes(s.status)) : base).sort((a, b) => (a.deadline || '9999').localeCompare(b.deadline || '9999') || a.name.localeCompare(b.name));
+    const today = todayISO();
+    const done = (s) => ['Submitted', 'Awarded', 'Not awarded', 'Not pursuing'].includes(s.status);
+    const soon = list.filter((s) => s.deadline && s.deadline >= today && daysUntil(s.deadline) <= 14 && !done(s));
+    const passed = list.filter((s) => s.deadline && s.deadline < today);
+    const later = list.filter((s) => s.deadline && s.deadline >= today && !soon.includes(s));
+    const undated = list.filter((s) => !s.deadline);
+    const months = [];
+    later.forEach((s) => { const m = s.deadline.slice(0, 7); let g = months.find((x) => x[0] === m); if (!g) months.push(g = [m, []]); g[1].push(s); });
+    const mName = (m) => new Date(m + '-15T12:00:00Z').toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+    const sect = (title, l, cls) => l.length ? `<h2 class="schhead ${cls || ''}">${title} <span class="muted small">${l.length}</span></h2>${l.map(schRow).join('')}` : '';
     return `<div class="spread"><h1>Scholarships</h1><button class="primary" id="addSch">+ Add</button></div>
-      <div class="scopes">
-        <button type="button" data-scope="All" class="scope-all ${scope === 'All' ? 'on' : ''}"><b>${list.length}</b><span>All</span></button>
-        ${SCOPES.map((x) => `<button type="button" data-scope="${esc(x.k)}" class="${x.cls} ${scope === x.k ? 'on' : ''}"><b>${counts[x.k]}</b><span><i class="lg">${esc(x.k)}</i><i class="sm">${esc(x.k === 'State & regional' ? 'State' : x.k)}</i></span><small>${esc(x.hint)}</small></button>`).join('')}
-      </div>
-      <p class="small scopenote">★ <b>Local</b> awards have the smallest applicant pools — Lily’s best odds. Tap a tile to filter; <b>All</b> shows everything.</p>
+      <div class="seg schseg" role="tablist">${SCH_VIEWS.map(([k]) => `<a href="#/scholarships" role="tab" data-schview="${esc(k)}" class="${k === view ? 'on' : ''}">${esc(k)} <b>${n[k]}</b></a>`).join('')}</div>
       <div class="filters">
         <input id="schQ" placeholder="Search" value="${esc(sessionGet('schQ') || '')}">
-        <select id="schS">${['Active', 'All'].concat(SCH_STATUS).map((o) => `<option ${o === st ? 'selected' : ''}>${o}</option>`).join('')}</select>
+        <select id="schScope">${['All'].concat(SCOPES.map((x) => x.k)).map((o) => `<option value="${esc(o)}" ${o === scope ? 'selected' : ''}>${o === 'All' ? 'All sources' : esc(o)}</option>`).join('')}</select>
       </div>
-      <p class="muted small">Amounts and eligibility are what sponsors publish — nothing here is a promise of an award.</p>
-      ${groups.length ? groups.map(([k, l]) => { const sc = SCOPES.find((x) => x.k === k); return `<h2 class="scopehead ${sc ? sc.cls : ''}">${esc(k)} <span class="muted small">${l.length}${sc ? ' · ' + esc(sc.hint) : ''}</span></h2>${l.map(schCard).join('')}`; }).join('') : '<p class="muted">No matches.</p>'}`;
+      <p class="muted small">${view === 'Deciding' ? 'Tap <b>Pursue</b> or <b>Skip</b> on each one. Pursued scholarships show on Home and the calendar.' : 'Sorted by deadline. Amounts are what sponsors publish, not a promise of an award.'}</p>
+      ${list.length ? sect('Due in the next 14 days', soon, 'hot')
+        + months.map(([m, l]) => sect(esc(mName(m)), l)).join('')
+        + sect('No date posted', undated)
+        + (passed.length ? `<details class="schpast"><summary>Deadline passed (${passed.length})</summary>${passed.map(schRow).join('')}</details>` : '')
+        : `<p class="muted">${view === 'Pursuing' ? 'None marked as pursuing yet. Open <b>Deciding</b> and tap Pursue.' : 'No matches.'}</p>`}`;
   }
 
   function viewAid() {
@@ -1799,7 +1839,6 @@
     $app.querySelectorAll('[data-scopejump]').forEach((b) => b.addEventListener('click', () => { sessionSet('schScope', b.dataset.scopejump); location.hash = '#/scholarships'; }));
     $app.querySelectorAll('[data-ptabjump]').forEach((a) => a.addEventListener('click', () => sessionSet('profTab', a.dataset.ptabjump)));
     $app.querySelectorAll('[data-jumpday]').forEach((a) => a.addEventListener('click', () => { const d = a.dataset.jumpday; sessionSet('calM', d.slice(0, 7)); sessionSet('calD', d); sessionSet('calJump', d); }));
-    $app.querySelectorAll('[data-scope]').forEach((b) => b.addEventListener('click', () => { sessionSet('schScope', b.dataset.scope); render(); }));
     $app.querySelectorAll('[data-mtab]').forEach((b) => b.addEventListener('click', () => { sessionSet('moneyTab', b.dataset.mtab); if (location.hash !== '#/money') location.hash = '#/money'; else render(); }));
     on('#addAct', () => editActivity(null));
     on('#addHonor', () => editHonor(null));
@@ -1835,10 +1874,14 @@
     });
     $app.querySelectorAll('[data-csv]').forEach((b) => b.addEventListener('click', () => download(`${b.dataset.csv}-${todayISO()}.csv`, toCSV(state[b.dataset.csv]), 'text/csv')));
     const rf = $app.querySelector('#restoreFile'); if (rf) rf.addEventListener('change', () => rf.files[0] && restore(rf.files[0]));
-    $app.querySelectorAll('[data-sch]').forEach((el) => el.addEventListener('click', (e) => { if (e.target.closest('a')) return; editSch(el.dataset.sch); }));
+    $app.querySelectorAll('[data-sch]').forEach((el) => el.addEventListener('click', (e) => { if (e.target.closest('a, button')) return; editSch(el.dataset.sch); }));
+    $app.querySelectorAll('[data-schview]').forEach((a) => a.addEventListener('click', (e) => { e.preventDefault(); sessionSet('schView', a.dataset.schview); render(); }));
+    const schSet = async (id, status, msg) => { const r = state.scholarships.find((x) => x.id === id); if (!r) return; await save('scholarships', { status }, id); toast(msg + ': ' + r.name); render(); };
+    $app.querySelectorAll('[data-pursue]').forEach((b) => b.addEventListener('click', () => schSet(b.dataset.pursue, 'Planning', 'Pursuing')));
+    $app.querySelectorAll('[data-skip]').forEach((b) => b.addEventListener('click', () => schSet(b.dataset.skip, 'Not pursuing', 'Not pursuing')));
     $app.querySelectorAll('[data-fact]').forEach((el) => el.addEventListener('click', () => editFact(el.dataset.fact)));
     const bindFilter = (id, key) => { const el = $app.querySelector('#' + id); if (!el) return; el.addEventListener(el.tagName === 'INPUT' ? 'input' : 'change', () => { sessionSet(key, el.value); clearTimeout(bindFilter.t); bindFilter.t = setTimeout(() => { render(); const again = $app.querySelector('#' + id); if (again && el.tagName === 'INPUT') { again.focus(); again.setSelectionRange(again.value.length, again.value.length); } }, el.tagName === 'INPUT' ? 250 : 0); }); };
-    bindFilter('weekOwner', 'weekOwner'); bindFilter('schQ', 'schQ'); bindFilter('schS', 'schS');
+    bindFilter('weekOwner', 'weekOwner'); bindFilter('schQ', 'schQ'); bindFilter('schScope', 'schScope');
     bindFilter('tQ', 'tQ'); bindFilter('tS', 'tS'); bindFilter('tO', 'tO');
   }
 

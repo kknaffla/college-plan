@@ -629,3 +629,23 @@ details.donegroup summary { cursor: pointer; font-weight: 600; color: var(--mute
 .autorow button { flex: none; }
 .hourpick { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px 10px; margin: 8px 0; }
 .hourpick label { display: flex; align-items: center; gap: 6px; font-size: .9rem; }
+
+/* Scholarships: deadline list with a date tile */
+.schseg a b { font-weight: 700; margin-left: 2px; }
+.schrow { display: flex; gap: 12px; align-items: flex-start; }
+.schbody { flex: 1; min-width: 0; }
+.schbody h3 { margin: 0; }
+.dtile { flex: 0 0 54px; text-align: center; border: 1px solid var(--line); border-radius: 10px; padding: 4px 0; line-height: 1.1; }
+.dtile span { display: block; font-size: .7rem; text-transform: uppercase; color: var(--muted); font-weight: 700; }
+.dtile b { display: block; font-size: 1.35rem; }
+.dtile small { display: block; font-size: .68rem; color: var(--muted); min-height: .8rem; }
+.dtile.hot { border-color: var(--bad); background: var(--bad-soft, transparent); }
+.dtile.hot b, .dtile.hot small { color: var(--bad); }
+.dtile.warm { border-color: var(--warn); }
+.dtile.warm small { color: var(--warn); }
+.dtile.past b { color: var(--muted); text-decoration: line-through; }
+.dtile.none b { color: var(--muted); }
+.schbtns { margin-top: 8px; }
+.schbtns button { padding: 4px 12px; font-size: .85rem; }
+.schhead.hot { color: var(--bad); }
+.schpast summary { cursor: pointer; margin: 1rem 0 .5rem; color: var(--muted); font-weight: 600; }
