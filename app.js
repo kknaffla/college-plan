@@ -3,7 +3,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '2026.10.28-2'; // keep in sync with the ?v= tags in index.html
+  const APP_VERSION = '2026.10.28-3'; // keep in sync with the ?v= tags in index.html
   const CFG = window.APP_CONFIG || {};
   const TZ = CFG.TIME_ZONE || 'America/Detroit';
   const WEEK_START = CFG.WEEK_START || '2026-10-25';
@@ -1755,6 +1755,7 @@
     const title = h.startsWith('#/college/') ? (SHORT_NAME[collegeName(h.slice(10))] || collegeName(h.slice(10)) || 'College') : (PAGE_TITLE[h] || 'Home');
     const live = state.syncStatus === 'SUBSCRIBED', off = ['CLOSED', 'CHANNEL_ERROR', 'TIMED_OUT'].includes(state.syncStatus);
     top.innerHTML = `
+      <a href="/" class="famhome" title="Family home" aria-label="Family home">&larr; <span>Family</span></a>
       <a href="#/" class="brand">${icon('colleges')}<span>College Plan</span></a>
       <span class="pagetitle">${esc(title)}</span>
       <nav class="topnav" aria-label="Main">${TOPNAV.map(([href, l, ic]) => `<a href="${href}" class="${href === base ? 'on' : ''}" ${href === base ? 'aria-current="page"' : ''} title="${l}" aria-label="${l}">${icon(ic)}<span>${l}</span></a>`).join('')}</nav>
