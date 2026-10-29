@@ -1,7 +1,7 @@
 # Handoff: moving this project to Claude Code on your Mac
 
 ## 1. Put the folder on your Mac
-Unzip `college-plan-handoff.zip` into `~/Projects/college-plan` (any location works).
+Unzip `college-plan-handoff.zip` into `~/Projects/knaffla-family/college-plan` (any location works).
 
 ## 2. One-time tools (skip anything you already have)
 ```bash
@@ -13,7 +13,7 @@ If Claude Code isn't installed yet, follow the install steps at https://docs.cla
 
 ## 3. Start Claude Code in the project folder
 ```bash
-cd ~/Projects/college-plan
+cd ~/Projects/knaffla-family/college-plan
 claude
 ```
 Claude Code reads `CLAUDE.md` automatically, so it starts with the full context.
@@ -28,7 +28,7 @@ Claude Code reads `CLAUDE.md` automatically, so it starts with the full context.
 > Stop and ask me only for things that need my login or a decision.
 
 ## 5. Day-to-day after that
-Open Terminal, `cd ~/Projects/college-plan`, run `claude`, and ask in plain English. For example:
+Open Terminal, `cd ~/Projects/knaffla-family/college-plan`, run `claude`, and ask in plain English. For example:
 - "Add a Western Michigan scholarship due Dec 1, unverified."
 - "MSU confirmed Nov 1 EA. Verify it on their site and mark it verified."
 - "Add a page comparing net price once offers come in."
