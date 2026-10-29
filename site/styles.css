@@ -649,3 +649,8 @@ details.donegroup summary { cursor: pointer; font-weight: 600; color: var(--mute
 .schbtns button { padding: 4px 12px; font-size: .85rem; }
 .schhead.hot { color: var(--bad); }
 .schpast summary { cursor: pointer; margin: 1rem 0 .5rem; color: var(--muted); font-weight: 600; }
+
+/* Back to the family dashboard, on every page of Lily's plan */
+.famhome { flex: none; font-size: .85rem; font-weight: 600; text-decoration: none; color: var(--muted); padding: 4px 8px; margin-left: -8px; border-radius: 8px; white-space: nowrap; }
+.famhome:hover { color: var(--accent); background: var(--accent-soft); }
+@media (max-width: 760px) { .famhome { padding: 4px 6px; } .topbar .pagetitle { flex: 1; } }
