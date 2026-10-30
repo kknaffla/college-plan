@@ -124,6 +124,57 @@ async function xkcd(): Promise<{ title: string; img: string; alt: string; link: 
   try { const j: any = await r.json(); return j.img && /^https:\/\/imgs\.xkcd\.com\//.test(j.img) ? { title: j.safe_title, img: j.img, alt: String(j.alt || '').slice(0, 200), link: 'https://xkcd.com/' + j.num + '/' } : null; } catch { return null; }
 }
 
+// Built-in fun lists (no source needed). Word of the day leans toward SAT vocabulary.
+const WORDS: [string, string, string][] = [
+  ['serendipity', 'noun', 'a happy accident; finding something good without looking for it'], ['ubiquitous', 'adj.', 'found everywhere'], ['candor', 'noun', 'honest, open speech'],
+  ['ephemeral', 'adj.', 'lasting a very short time'], ['tenacious', 'adj.', 'holding on; not giving up'], ['pragmatic', 'adj.', 'practical rather than idealistic'],
+  ['eloquent', 'adj.', 'fluent and persuasive in speech'], ['meticulous', 'adj.', 'very careful about details'], ['benevolent', 'adj.', 'kind and generous'],
+  ['ambivalent', 'adj.', 'having mixed feelings'], ['resilient', 'adj.', 'able to bounce back'], ['nostalgia', 'noun', 'a longing for the past'],
+  ['juxtapose', 'verb', 'to place side by side for contrast'], ['anomaly', 'noun', 'something that departs from the normal'], ['frugal', 'adj.', 'careful with money'],
+  ['gregarious', 'adj.', 'sociable; fond of company'], ['lucid', 'adj.', 'clear and easy to understand'], ['novice', 'noun', 'a beginner'],
+  ['prudent', 'adj.', 'wise and careful about the future'], ['scrutinize', 'verb', 'to examine closely'], ['vivid', 'adj.', 'bright, strong, lifelike'],
+  ['wary', 'adj.', 'cautious; on guard'], ['zenith', 'noun', 'the highest point'], ['brevity', 'noun', 'shortness; saying it in few words'],
+  ['diligent', 'adj.', 'hardworking and careful'], ['empathy', 'noun', 'understanding how someone else feels'], ['hypothesis', 'noun', 'an idea to be tested'],
+  ['integrity', 'noun', 'honesty; doing right when no one is watching'], ['keen', 'adj.', 'sharp, eager'], ['mundane', 'adj.', 'ordinary, everyday'],
+  ['optimist', 'noun', 'someone who expects the best'],
+];
+const QUESTIONS = [
+  'Best Halloween costume you ever wore?', 'If we took one more trip this year, where?', 'What song is stuck in your head right now?', 'Dream job at age 10 vs. now?',
+  'What is one thing you want to learn this winter?', 'Pancakes or waffles, and defend it.', 'Best meal we have had on a trip?', 'What would you name a family boat?',
+  'One rule you would add at home. One you would drop.', 'Favorite thing about Crooked Lake?', 'Which superpower helps most on a school day?', 'What is a small win from this week?',
+  'Mountains or beach for spring break?', 'What would you put in a Knaffla time capsule?', 'Best concert you have been to, or want to go to?', 'A food you hated as a kid and like now?',
+  'If you could have dinner with one musician, who?', 'What is the funniest thing that happened this week?', 'Favorite family tradition?', 'Snow day plan: what do we do?',
+  'One place in Michigan everyone should see?', 'Hardest class right now, and one thing that would help?', 'A movie we should all watch this weekend?', 'What are you most looking forward to this month?',
+  'Cabin, camper or hotel?', 'Best teacher you ever had, and why?', 'What is your go-to karaoke song?', 'What is one kind thing someone did for you lately?',
+];
+// Fixed countdown targets (yearly) alongside birthdays from family_dates.
+const HOLIDAYS: [string, number, number][] = [['🎄 Christmas', 12, 25], ['🎆 New Year', 1, 1], ['🦃 Thanksgiving', 11, 26], ['🎃 Halloween', 10, 31], ['🇺🇸 Fourth of July', 7, 4], ['☘️ St. Patrick\'s Day', 3, 17], ['💝 Valentine\'s Day', 2, 14]];
+
+// Game day: our teams' games today and tomorrow, and yesterday's scores, from ESPN's public scoreboard (no key).
+const TEAMS = ['Michigan', 'Michigan State', 'Michigan Tech', 'Northern Michigan', 'Lions', 'Red Wings', 'Tigers', 'Pistons'];
+const RIVALS = [['Michigan', 'Michigan State'], ['Michigan', 'Ohio State'], ['Lions', 'Packers'], ['Michigan Tech', 'Northern Michigan']];
+type Game = { when: string; label: string; detail: string; tv: string; rivalry: boolean; final: boolean; ours: boolean };
+async function games(dayISO: string): Promise<Game[]> {
+  const d = dayISO.replace(/-/g, ''), out: Game[] = [];
+  const feeds = [`football/college-football/scoreboard?groups=80&dates=${d}`, `football/nfl/scoreboard?dates=${d}`, `hockey/nhl/scoreboard?dates=${d}`, `basketball/mens-college-basketball/scoreboard?groups=50&dates=${d}`, `basketball/nba/scoreboard?dates=${d}`, `baseball/mlb/scoreboard?dates=${d}`];
+  const res = await Promise.all(feeds.map((f) => get('https://site.api.espn.com/apis/site/v2/sports/' + f, 5000)));
+  for (const r of res) { if (!r) continue;
+    try { const j: any = await r.json();
+      for (const e of j.events || []) { const c = e.competitions?.[0]; if (!c) continue;
+        const names: string[] = c.competitors.map((x: any) => x.team.shortDisplayName);
+        const ours = names.filter((n) => TEAMS.some((t) => n === t));
+        if (!ours.length) continue;
+        const rivalry = RIVALS.some(([a, b]) => names.includes(a) && names.includes(b));
+        const final = e.status?.type?.completed === true;
+        const score = final ? c.competitors.map((x: any) => `${x.team.shortDisplayName} ${x.score}`).join(', ') : '';
+        const t = new Date(e.date).toLocaleTimeString('en-US', { timeZone: TZ, hour: 'numeric', minute: '2-digit' }).replace(':00', '');
+        out.push({ when: e.date, label: names.join(' vs '), detail: final ? score : t, tv: c.broadcasts?.[0]?.names?.[0] || '', rivalry, final, ours: true });
+      }
+    } catch { /* skip this feed */ }
+  }
+  return out.sort((a, b) => a.when.localeCompare(b.when));
+}
+
 type Item = { date: string; time?: string | null; title: string; who?: string; tag: string; rank: number; link: string; senior?: boolean; event?: boolean; cid?: string };
 
 Deno.serve(async (req) => {
@@ -244,11 +295,23 @@ Deno.serve(async (req) => {
   const NEAR = /michigan|detroit|grand rapids|wisconsin|milwaukee|madison|green bay|minnesota|minneapolis|chicago|little caesars|pine knob|van andel|fiserv|soldier field|wrigley/i;
   const onTour = (musicRaw as any[]).filter((m) => m.tour && m.tour.link !== m.news?.link).sort((a, b) => (NEAR.test(b.tour.title) ? 1 : 0) - (NEAR.test(a.tour.title) ? 1 : 0)).slice(0, 3);
   const [moonIco, moonName] = moon(today);
-  const [fact, quiz, joke, comic] = await Promise.all([onThisDay(today), trivia(today), dadJoke(), xkcd()]);
+  // Fun zone: the quiz runs every day; two more fun cards rotate through the week so each morning feels different.
+  const seed = daysBetween('2026-01-01', today);
+  const ROTATION = ['joke', 'word', 'fact', 'question', 'comic', 'countdown', 'stars'];
+  const slot1 = ROTATION[seed % ROTATION.length], slot2 = ROTATION[(seed + 3) % ROTATION.length];
+  const want = new Set([slot1, slot2]);
+  const [fact, quiz, joke, comic, gToday, gTomorrow, gYesterday] = await Promise.all([want.has('fact') ? onThisDay(today) : null, trivia(today), want.has('joke') ? dadJoke() : '', want.has('comic') ? xkcd() : null, games(today), games(addDays(today, 1)), games(addDays(today, -1))]);
+  // Game day shows whenever one of our teams plays today or tomorrow, or played yesterday. Rivalry games always lead.
+  const gameLines = [...gYesterday.filter((g) => g.final).map((g) => ({ ...g, tag: 'Final' })), ...gToday.filter((g) => !g.final).map((g) => ({ ...g, tag: 'Today' })), ...gTomorrow.map((g) => ({ ...g, tag: 'Tomorrow' }))]
+    .sort((a, b) => (b.rivalry ? 1 : 0) - (a.rivalry ? 1 : 0)).slice(0, 4);
+  const word = want.has('word') ? WORDS[seed % WORDS.length] : null;
+  const question = want.has('question') ? QUESTIONS[seed % QUESTIONS.length] : '';
+  const countdowns = want.has('countdown') ? [...HOLIDAYS.map(([t, m, d]) => ({ title: t, date: nextYearly(m, d) })), ...dbDates.filter((d) => d.birthday).map((d) => ({ title: d.title, date: d.date }))]
+    .map((c) => ({ ...c, n: daysBetween(today, c.date) })).filter((c) => c.n > 0).sort((a, b) => a.n - b.n).slice(0, 4) : [];
   // The answer hides behind a tap: a link to the family calendar page with the answer in the hash, shown on arrival.
   const revealLink = quiz ? HOME + 'calendar/#answer=' + encodeURIComponent(quiz.answer) : '';
   // Fun fact: where the stars are heading (tours, concerts, sightings) from the last 3 days of news.
-  const stars: string[] = Array.isArray(settings.stars) ? settings.stars.slice(0, 3) : [];
+  const stars: string[] = Array.isArray(settings.stars) && new Set([ROTATION[daysBetween('2026-01-01', today) % ROTATION.length], ROTATION[(daysBetween('2026-01-01', today) + 3) % ROTATION.length]]).has('stars') ? settings.stars.slice(0, 3) : [];
   const starNews = (await Promise.all(stars.map(async (n) => ({ n, it: (await rss(GN(`"${n}" (tour OR concert OR heading OR visits OR spotted OR stadium) when:3d`), 1))[0] || null })))).filter((x) => x.it);
 
   // ---------- Lily's focus college and the top 3 ----------
@@ -295,17 +358,22 @@ Deno.serve(async (req) => {
   ${dates.length ? sec('🗓️', 'Coming up', '#a3361f', HOME + 'calendar/') + dates.map((d) => li(d.birthday ? '🎂' : '📌', d.title.replace('🎂 ', ''), d.link, inDays(d.date))).join('') : ''}
   ${topNews.length || upNews.length ? sec('📰', 'Headlines', '#0b5f73') + [...topNews, ...upNews.map((n) => ({ ...n, source: (n.source || '') + ' · Up North' }))].map((n) => li('•', n.title, n.link, n.source)).join('') : ''}
   ${entNews.length ? sec('🎬', 'Entertainment', '#8a1f5c') + entNews.map((n) => li('•', n.title, n.link, n.source)).join('') : ''}
-  ${onTour.length ? sec('🎤', 'On tour', '#e8590c') + onTour.map((m) => `<div style="margin:0 0 5px">${NEAR.test(m.tour.title) ? '📍' : '🚌'} <b style="color:#e8590c">${h(m.a.name)}</b>: <a href="${h(m.tour.link)}" style="color:#1f2a23;text-decoration:none">${h(m.tour.title)}</a> <span style="color:#6b7280;font-size:13px">${h(m.tour.source)}</span></div>`).join('') : ''}
-  ${starNews.length ? sec('🌟', 'Where the stars are', '#c2255c') + starNews.map((x) => li('✨', x.it!.title, x.it!.link, x.it!.source)).join('') : ''}
-  ${music.length ? sec('🎶', 'Music we follow', '#7b2ff7', HOME + 'music/') + music.map((m) => `<div style="margin:0 0 7px"><b style="color:#7b2ff7">${h(m.a.name)}</b> <span style="color:#9aa1a9;font-size:12px">${h(followers(m.a.id).join(', '))}</span>${m.rel ? `<br>💿 <a href="${h(m.rel.link)}" style="color:#1f2a23;font-weight:600;text-decoration:none">New: ${h(m.rel.title)}</a> <span style="color:#6b7280;font-size:13px">${h(nice(m.rel.date))}</span>` : ''}${m.news ? `<br>🗞️ <a href="${h(m.news.link)}" style="color:#1f2a23;text-decoration:none">${h(m.news.title)}</a> <span style="color:#6b7280;font-size:13px">${h(m.news.source)}</span>` : ''}</div>`).join('') : artists.length ? '' : sec('🎶', 'Follow some music', '#7b2ff7', HOME + 'music/') + '<div style="font-size:13.5px;color:#4b5563">Pick artists on the family page and their news shows up here.</div>'}
-  ${quiz ? `<div style="margin:18px 0 0;background-color:#0b5f73;background-image:linear-gradient(135deg,#0b5f73,#138a6c);color:#fff;border-radius:14px;padding:12px 16px">
-    <div style="font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;opacity:.9">🧠 Daily quiz · ${h(quiz.category)}</div>
-    <div style="font-size:16px;font-weight:700;margin:4px 0 8px">${h(quiz.question)}</div>
-    <div style="font-size:14px">${quiz.choices.map((c, i) => `<span style="display:inline-block;background:rgba(255,255,255,.18);border-radius:999px;padding:3px 11px;margin:0 6px 6px 0">${'ABCD'[i]}. ${h(c)}</span>`).join('')}</div>
-    <div style="font-size:13px"><a href="${h(revealLink)}" style="color:#ffd86b;font-weight:800;text-decoration:none">Tap to reveal the answer →</a> · first right answer at breakfast wins 🏅</div></div>` : ''}
-  ${joke ? `<div style="margin:12px 0 0;background:#fbe7ef;border-radius:12px;padding:10px 14px;font-size:14px"><b style="color:#c2306f">😂 Dad joke:</b> ${h(joke)}</div>` : ''}
-  ${comic ? `<div style="margin:12px 0 0;text-align:center"><a href="${h(comic.link)}" style="text-decoration:none;color:#6b7280;font-size:12px"><img src="${h(comic.img)}" alt="${h(comic.alt)}" title="${h(comic.alt)}" style="max-width:100%;max-height:260px;width:auto;border-radius:10px;border:1px solid #e5e7eb"><br>✏️ xkcd: ${h(comic.title)} (xkcd.com, CC BY-NC)</a></div>` : ''}
-  ${fact ? `<div style="margin:18px 0 0;background:#fff8e1;border-radius:12px;padding:10px 14px;font-size:14px"><b style="color:#a8640c">🤓 On this day, ${fact.year}:</b> ${h(fact.text)} <a href="${h(fact.link)}" style="color:#a8640c;font-weight:700;text-decoration:none">more →</a></div>` : ''}
+  <!-- Fun zone: each item is its own colorful card with one big emoji and a line or two; nothing more. -->
+  ${quiz ? `<div style="margin:22px 0 0;background-color:#0b5f73;background-image:linear-gradient(135deg,#0b5f73,#138a6c);color:#fff;border-radius:16px;padding:14px 16px"><table role="presentation" style="border-collapse:collapse"><tr><td style="font-size:40px;line-height:1;padding-right:12px;vertical-align:top">🧠</td><td>
+    <div style="font-size:11.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;opacity:.85">Daily quiz · ${h(quiz.category)}</div>
+    <div style="font-size:17px;font-weight:800;margin:3px 0 8px;line-height:1.3">${h(quiz.question)}</div>
+    <div style="font-size:14px">${quiz.choices.map((c, i) => `<span style="display:inline-block;background:rgba(255,255,255,.2);border-radius:999px;padding:4px 12px;margin:0 6px 6px 0;font-weight:600">${'ABCD'[i]}. ${h(c)}</span>`).join('')}</div>
+    <a href="${h(revealLink)}" style="display:inline-block;margin-top:4px;background:#ffd86b;color:#0b3d4a;font-weight:800;font-size:14px;padding:8px 14px;border-radius:999px;text-decoration:none">Reveal the answer →</a></td></tr></table></div>` : ''}
+  ${joke ? `<div style="margin:12px 0 0;background-color:#c2306f;background-image:linear-gradient(135deg,#8a1f5c,#d9486f);color:#fff;border-radius:16px;padding:14px 16px"><table role="presentation" style="border-collapse:collapse"><tr><td style="font-size:40px;line-height:1;padding-right:12px;vertical-align:top">😂</td><td><div style="font-size:11.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;opacity:.85">Dad joke</div><div style="font-size:16px;font-weight:700;line-height:1.35">${h(joke)}</div></td></tr></table></div>` : ''}
+  ${gameLines.length ? `<div style="margin:12px 0 0;background-color:#00274c;background-image:linear-gradient(135deg,#00274c,#18453b);color:#fff;border-radius:16px;padding:14px 16px"><table role="presentation" style="border-collapse:collapse"><tr><td style="font-size:40px;line-height:1;padding-right:12px;vertical-align:top">${gameLines.some((g) => g.rivalry) ? '🔥' : '🏟️'}</td><td><div style="font-size:11.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;opacity:.85">${gameLines.some((g) => g.rivalry) ? 'Rivalry week!' : 'Game day'}</div>${gameLines.map((g) => `<div style="font-size:15px;margin:3px 0 0"><b>${h(g.label)}</b>${g.rivalry ? ' 🔥' : ''} <span style="opacity:.85">· ${h(g.tag)}${g.final ? ': ' : ' '}${h(g.detail)}${g.tv && !g.final ? ' on ' + h(g.tv) : ''}</span></div>`).join('')}</td></tr></table></div>` : ''}
+  ${word ? `<div style="margin:12px 0 0;background-color:#1d3f8f;background-image:linear-gradient(135deg,#1d3f8f,#2f86c9);color:#fff;border-radius:16px;padding:14px 16px"><table role="presentation" style="border-collapse:collapse"><tr><td style="font-size:40px;line-height:1;padding-right:12px;vertical-align:top">📖</td><td><div style="font-size:11.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;opacity:.85">Word of the day</div><div style="font-size:20px;font-weight:800">${h(word[0])} <span style="font-size:13px;font-weight:600;opacity:.8">${h(word[1])}</span></div><div style="font-size:15px;line-height:1.35">${h(word[2])}</div></td></tr></table></div>` : ''}
+  ${question ? `<div style="margin:12px 0 0;background-color:#138a6c;background-image:linear-gradient(135deg,#0b5f73,#4a9a3d);color:#fff;border-radius:16px;padding:14px 16px"><table role="presentation" style="border-collapse:collapse"><tr><td style="font-size:40px;line-height:1;padding-right:12px;vertical-align:top">💬</td><td><div style="font-size:11.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;opacity:.85">Dinner table question</div><div style="font-size:17px;font-weight:800;line-height:1.3">${h(question)}</div></td></tr></table></div>` : ''}
+  ${countdowns.length ? `<div style="margin:12px 0 0;background-color:#a3361f;background-image:linear-gradient(135deg,#a3361f,#d9762b);color:#fff;border-radius:16px;padding:14px 16px"><table role="presentation" style="border-collapse:collapse"><tr><td style="font-size:40px;line-height:1;padding-right:12px;vertical-align:top">⏳</td><td><div style="font-size:11.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;opacity:.85">Countdowns</div>${countdowns.map((c) => `<span style="display:inline-block;background:rgba(255,255,255,.2);border-radius:999px;padding:4px 12px;margin:4px 6px 0 0;font-size:14px;font-weight:700">${h(c.title)} · ${c.n} day${c.n === 1 ? '' : 's'}</span>`).join('')}</td></tr></table></div>` : ''}
+  ${onTour.length ? `<div style="margin:12px 0 0;background-color:#e8590c;background-image:linear-gradient(135deg,#b4400b,#f08c00);color:#fff;border-radius:16px;padding:14px 16px"><table role="presentation" style="border-collapse:collapse"><tr><td style="font-size:40px;line-height:1;padding-right:12px;vertical-align:top">🎤</td><td><div style="font-size:11.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;opacity:.85">On tour</div>${onTour.map((m) => `<div style="font-size:15px;margin:3px 0 0"><b>${h(m.a.name)}</b> ${NEAR.test(m.tour.title) ? '📍' : '🚌'} <a href="${h(m.tour.link)}" style="color:#fff;text-decoration:underline;text-decoration-color:rgba(255,255,255,.5)">${h(m.tour.title)}</a></div>`).join('')}</td></tr></table></div>` : ''}
+  ${starNews.length ? `<div style="margin:12px 0 0;background-color:#c2255c;background-image:linear-gradient(135deg,#c2255c,#f107a3);color:#fff;border-radius:16px;padding:14px 16px"><table role="presentation" style="border-collapse:collapse"><tr><td style="font-size:40px;line-height:1;padding-right:12px;vertical-align:top">🌟</td><td><div style="font-size:11.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;opacity:.85">Where the stars are</div>${starNews.map((x) => `<div style="font-size:15px;margin:3px 0 0"><a href="${h(x.it!.link)}" style="color:#fff;text-decoration:underline;text-decoration-color:rgba(255,255,255,.5)">${h(x.it!.title)}</a></div>`).join('')}</td></tr></table></div>` : ''}
+  ${music.length ? `<div style="margin:12px 0 0;background-color:#5b2a86;background-image:linear-gradient(135deg,#2b1055,#7b2ff7);color:#fff;border-radius:16px;padding:14px 16px"><table role="presentation" style="border-collapse:collapse"><tr><td style="font-size:40px;line-height:1;padding-right:12px;vertical-align:top">🎶</td><td><div style="font-size:11.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;opacity:.85"><a href="${HOME}music/" style="color:#fff;text-decoration:none">Music we follow</a></div>${music.map((m) => `<div style="font-size:15px;margin:3px 0 0"><b>${h(m.a.name)}</b> <span style="opacity:.7;font-size:12px">${h(followers(m.a.id).join(', '))}</span>${m.rel ? `<br>💿 <a href="${h(m.rel.link)}" style="color:#fff;text-decoration:underline;text-decoration-color:rgba(255,255,255,.5)">New: ${h(m.rel.title)}</a>` : ''}${m.news && !onTour.some((t) => t.a.id === m.a.id && t.tour.link === m.news.link) ? `<br>🗞️ <a href="${h(m.news.link)}" style="color:#fff;text-decoration:underline;text-decoration-color:rgba(255,255,255,.5)">${h(m.news.title)}</a>` : ''}</div>`).join('')}</td></tr></table></div>` : artists.length ? '' : `<div style="margin:12px 0 0;background:#f3e8ff;border-radius:16px;padding:12px 16px;font-size:14px">🎶 <a href="${HOME}music/" style="color:#5b2a86;font-weight:800;text-decoration:none">Pick the music you follow →</a></div>`}
+  ${comic ? `<div style="margin:12px 0 0;background:#f8fafc;border:1px solid #e5e7eb;border-radius:16px;padding:12px;text-align:center"><a href="${h(comic.link)}" style="text-decoration:none;color:#6b7280;font-size:12px"><img src="${h(comic.img)}" alt="${h(comic.alt)}" title="${h(comic.alt)}" style="max-width:100%;max-height:240px;width:auto;border-radius:8px"><br>✏️ ${h(comic.title)} · xkcd.com (CC BY-NC)</a></div>` : ''}
+  ${fact ? `<div style="margin:12px 0 0;background-color:#a8640c;background-image:linear-gradient(135deg,#a8640c,#f0b429);color:#fff;border-radius:16px;padding:14px 16px"><table role="presentation" style="border-collapse:collapse"><tr><td style="font-size:40px;line-height:1;padding-right:12px;vertical-align:top">🤓</td><td><div style="font-size:11.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;opacity:.85">On this day, ${fact.year}</div><div style="font-size:15px;font-weight:600;line-height:1.35">${h(fact.text)} <a href="${h(fact.link)}" style="color:#fff;font-weight:800;text-decoration:none">more →</a></div></td></tr></table></div>` : ''}
   ${(() => { const B: [string, string, string, string][] = [['🎓 Lily', APP, '#1d3f8f', '#2f86c9'], ['📚 Amy', HOME + 'amy/', '#8a1f5c', '#d9486f'], ['🧳 Trips', TRIPS, '#5b2a86', '#c2306f'], ['📅 Calendar', HOME + 'calendar/', '#a3361f', '#d9762b'], ['🎶 Music', HOME + 'music/', '#2b1055', '#f107a3'], ['🏡 Family', HOME, '#0b5f73', '#138a6c']];
     return `<table role="presentation" style="width:100%;border-collapse:separate;border-spacing:6px;margin:16px -6px 0"><tr>${B.slice(0, 3).map(([t, u, c1, c2]) => `<td style="width:33%"><a href="${u}" style="display:block;text-align:center;background-color:${c1};background-image:linear-gradient(135deg,${c1},${c2});color:#fff;font-weight:800;font-size:15px;padding:14px 6px;border-radius:14px;text-decoration:none">${t}</a></td>`).join('')}</tr><tr>${B.slice(3).map(([t, u, c1, c2]) => `<td style="width:33%"><a href="${u}" style="display:block;text-align:center;background-color:${c1};background-image:linear-gradient(135deg,${c1},${c2});color:#fff;font-weight:800;font-size:15px;padding:14px 6px;border-radius:14px;text-decoration:none">${t}</a></td>`).join('')}</tr></table>`; })()}
   <div style="margin:14px 0 0;padding:10px 14px;border-radius:12px;background:#f3e8ff;font-size:15px;font-weight:800;color:#5b2a86;text-align:center">${h(signoff)}</div></div>`;
@@ -326,6 +394,10 @@ Deno.serve(async (req) => {
     music.length ? '\nMUSIC\n' + music.map((m) => `- ${m.a.name}: ${m.rel ? 'New: ' + m.rel.title + '. ' : ''}${m.news ? m.news.title : ''}`).join('\n') : '',
     quiz ? `\nDAILY QUIZ (${quiz.category}): ${quiz.question}\n` + quiz.choices.map((c, i) => `  ${'ABCD'[i]}. ${c}`).join('\n') + `\n  Answer: ${revealLink}` : '',
     joke ? `\nDAD JOKE: ${joke}` : '',
+    gameLines.length ? '\nGAME DAY\n' + gameLines.map((g) => `- ${g.label}: ${g.tag} ${g.detail}${g.tv && !g.final ? ' on ' + g.tv : ''}`).join('\n') : '',
+    word ? `\nWORD OF THE DAY: ${word[0]} (${word[1]}): ${word[2]}` : '',
+    question ? `\nDINNER TABLE QUESTION: ${question}` : '',
+    countdowns.length ? '\nCOUNTDOWNS: ' + countdowns.map((c) => `${c.title} ${c.n}d`).join(', ') : '',
     comic ? `\nCARTOON: ${comic.title} ${comic.link}` : '',
     `\nMOON: ${moonName}`,
     fact ? `\nON THIS DAY, ${fact.year}: ${fact.text} ${fact.link}` : '',
