@@ -182,7 +182,9 @@ async function games(dayISO: string): Promise<Game[]> {
       }
     } catch { /* skip this feed */ }
   }
-  return out.sort((a, b) => a.when.localeCompare(b.when));
+  // The same game can come back from two feeds (e.g. both college football groups): keep one.
+  const seen = new Set<string>();
+  return out.filter((g) => { const k = g.when + g.label; if (seen.has(k)) return false; seen.add(k); return true; }).sort((a, b) => a.when.localeCompare(b.when));
 }
 
 type Item = { date: string; time?: string | null; title: string; who?: string; tag: string; rank: number; link: string; senior?: boolean; event?: boolean; cid?: string };
@@ -295,8 +297,8 @@ Deno.serve(async (req) => {
   // Crooked Lake (the cottage, about 25 miles north off M-94) uses the Germfask forecast.
   const [wxHome, wxLake, wxSecond, topNews, upNews, entNews, ...musicRaw] = await Promise.all([
     weather('Manistique', 45.9575, -86.2463), weather('Crooked Lake', 46.2494, -85.926), weather(second.name, second.lat, second.lon),
-    rss('https://news.google.com/rss?hl=en-US&gl=US&ceid=US:en', 3), rss(GN('Upper Peninsula Michigan when:2d'), 1),
-    rss('https://news.google.com/rss/headlines/section/topic/ENTERTAINMENT?hl=en-US&gl=US&ceid=US:en', 2),
+    rss('https://news.google.com/rss?hl=en-US&gl=US&ceid=US:en', 2), rss(GN('Upper Peninsula Michigan when:2d'), 1),
+    rss('https://news.google.com/rss/headlines/section/topic/ENTERTAINMENT?hl=en-US&gl=US&ceid=US:en', 1),
     ...artists.map(async (a) => ({ a, news: (await rss(GN(`"${a.name}" when:7d`), 1))[0] || null, rel: await newRelease(a.name, addDays(today, -30)),
       tour: (await rss(GN(`"${a.name}" (tour OR concert OR "live at" OR arena OR stadium OR amphitheater) when:14d`), 3)).find((n) => /\b(tour|concert|live|arena|stadium|amphitheat|festival|show)/i.test(n.title)) || null })),
   ]);
@@ -346,10 +348,10 @@ Deno.serve(async (req) => {
   const F = 'font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif';
   const sec = (emoji: string, t: string, c: string, link?: string) => `<div style="margin:18px 0 6px;font-size:16px;font-weight:800;color:${c}">${emoji} ${link ? `<a href="${h(link)}" style="color:${c};text-decoration:none">${h(t)}</a>` : h(t)}</div>`;
   // News cards: short. Each story is one trimmed line linking to the article, plus a "More" button. Reads on light and dark backgrounds.
-  const trim = (t: string, n = 70) => (t.length > n ? t.slice(0, n - 1).replace(/\s+\S*$/, '') + '…' : t);
+  const trim = (t: string, n = 56) => (t.length > n ? t.slice(0, n - 1).replace(/\s+\S*$/, '') + '…' : t);
   const newsCard = (emoji: string, title: string, c1: string, c2: string, list: News[], more: string) => `<div style="margin:12px 0 0;background-color:${c1};background-image:linear-gradient(135deg,${c1},${c2});color:#fff;border-radius:16px;padding:14px 16px"><table role="presentation" style="border-collapse:collapse;width:100%"><tr><td style="font-size:40px;line-height:1;padding-right:12px;vertical-align:top;width:44px">${emoji}</td><td>
     <div style="font-size:11.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;opacity:.85">${h(title)}</div>
-    ${list.slice(0, 4).map((n) => `<div style="margin:5px 0 0;font-size:15px;line-height:1.3">▸ <a href="${h(n.link)}" style="color:#fff;text-decoration:none;font-weight:600">${h(trim(n.title))}</a></div>`).join('')}
+    ${list.slice(0, 3).map((n) => `<div style="margin:5px 0 0;font-size:15px;line-height:1.3">▸ <a href="${h(n.link)}" style="color:#fff;text-decoration:none;font-weight:600">${h(trim(n.title))}</a></div>`).join('')}
     <a href="${h(more)}" style="display:inline-block;margin-top:9px;background:rgba(255,255,255,.22);color:#fff;font-weight:800;font-size:13px;padding:6px 12px;border-radius:999px;text-decoration:none">More →</a></td></tr></table></div>`;
   const li = (ico: string, title: string, link: string, meta: string, metaColor = '#6b7280') => `<div style="margin:0 0 5px">${ico} <a href="${h(link)}" style="color:#1f2a23;text-decoration:none;font-weight:600">${h(title)}</a> <span style="color:${metaColor};font-size:13px">${h(meta)}</span></div>`;
   const wxCard = (w: Wx | null, c1: string, c2: string) => w ? `<td style="width:33%;padding:3px;vertical-align:top"><div style="background-color:${c1};background-image:linear-gradient(135deg,${c1},${c2});color:#fff;border-radius:12px;padding:9px 10px;min-height:74px">
@@ -403,8 +405,8 @@ Deno.serve(async (req) => {
     top3.length ? '\nTOP 3\n' + top3.map((i) => `- ${i.title} (${(i.who && i.who !== 'Lily' ? i.who + ', ' : '') + when2(i)})`).join('\n') : '',
     trip ? `\nTRIP: ${trip.name}, ${tripInfo(trip).soon}${tripInfo(trip).need.length ? '. To book: ' + tripInfo(trip).need.join(', ') : ''}` : '',
     dates.length ? '\nCOMING UP\n' + dates.map((d) => `- ${d.title.replace('🎂 ', '')} (${inDays(d.date)})`).join('\n') : '',
-    topNews.length ? '\nHEADLINES\n' + [...topNews, ...upNews].map((n) => `- ${n.title} (${n.source}) ${n.link}`).join('\n') : '',
-    entNews.length ? '\nENTERTAINMENT\n' + entNews.map((n) => `- ${n.title} (${n.source}) ${n.link}`).join('\n') : '',
+    topNews.length ? '\nHEADLINES\n' + [...topNews, ...upNews].map((n) => `- ${trim(n.title)} ${n.link}`).join('\n') : '',
+    entNews.length ? '\nENTERTAINMENT\n' + entNews.map((n) => `- ${trim(n.title)} ${n.link}`).join('\n') : '',
     onTour.length ? '\nON TOUR\n' + onTour.map((m) => `- ${m.a.name}: ${m.tour.title} ${m.tour.link}`).join('\n') : '',
     starNews.length ? '\nWHERE THE STARS ARE\n' + starNews.map((x) => `- ${x.it!.title} ${x.it!.link}`).join('\n') : '',
     music.length ? '\nMUSIC\n' + music.map((m) => `- ${m.a.name}: ${m.rel ? 'New: ' + m.rel.title + '. ' : ''}${m.news ? m.news.title : ''}`).join('\n') : '',
