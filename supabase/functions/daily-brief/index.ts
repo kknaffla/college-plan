@@ -151,12 +151,14 @@ const QUESTIONS = [
 const HOLIDAYS: [string, number, number][] = [['🎄 Christmas', 12, 25], ['🎆 New Year', 1, 1], ['🦃 Thanksgiving', 11, 26], ['🎃 Halloween', 10, 31], ['🇺🇸 Fourth of July', 7, 4], ['☘️ St. Patrick\'s Day', 3, 17], ['💝 Valentine\'s Day', 2, 14]];
 
 // Game day: our teams' games today and tomorrow, and yesterday's scores, from ESPN's public scoreboard (no key).
-const TEAMS = ['Michigan', 'Michigan State', 'Michigan Tech', 'Northern Michigan', 'Lions', 'Red Wings', 'Tigers', 'Pistons'];
-const RIVALS = [['Michigan', 'Michigan State'], ['Michigan', 'Ohio State'], ['Lions', 'Packers'], ['Michigan Tech', 'Northern Michigan']];
+// ESPN short names: "Michigan St" (not State), "Northern Michigan", "Michigan Tech". Division II football is group 35; college hockey has its own feed.
+const TEAMS = ['Michigan', 'Michigan St', 'Michigan State', 'Michigan Tech', 'Northern Michigan', 'Lions', 'Red Wings', 'Tigers', 'Pistons'];
+const RIVALS = [['Michigan', 'Michigan St'], ['Michigan', 'Michigan State'], ['Michigan', 'Ohio State'], ['Lions', 'Packers'], ['Michigan Tech', 'Northern Michigan']];
 type Game = { when: string; label: string; detail: string; tv: string; rivalry: boolean; final: boolean; ours: boolean };
 async function games(dayISO: string): Promise<Game[]> {
   const d = dayISO.replace(/-/g, ''), out: Game[] = [];
-  const feeds = [`football/college-football/scoreboard?groups=80&dates=${d}`, `football/nfl/scoreboard?dates=${d}`, `hockey/nhl/scoreboard?dates=${d}`, `basketball/mens-college-basketball/scoreboard?groups=50&dates=${d}`, `basketball/nba/scoreboard?dates=${d}`, `baseball/mlb/scoreboard?dates=${d}`];
+  const feeds = [`football/college-football/scoreboard?groups=80&dates=${d}&limit=300`, `football/college-football/scoreboard?groups=35&dates=${d}&limit=300`, `football/nfl/scoreboard?dates=${d}`,
+    `hockey/mens-college-hockey/scoreboard?dates=${d}&limit=100`, `hockey/nhl/scoreboard?dates=${d}`, `basketball/mens-college-basketball/scoreboard?groups=50&dates=${d}&limit=300`, `basketball/nba/scoreboard?dates=${d}`, `baseball/mlb/scoreboard?dates=${d}`];
   const res = await Promise.all(feeds.map((f) => get('https://site.api.espn.com/apis/site/v2/sports/' + f, 5000)));
   for (const r of res) { if (!r) continue;
     try { const j: any = await r.json();
@@ -168,7 +170,8 @@ async function games(dayISO: string): Promise<Game[]> {
         const final = e.status?.type?.completed === true;
         const score = final ? c.competitors.map((x: any) => `${x.team.shortDisplayName} ${x.score}`).join(', ') : '';
         const t = new Date(e.date).toLocaleTimeString('en-US', { timeZone: TZ, hour: 'numeric', minute: '2-digit' }).replace(':00', '');
-        out.push({ when: e.date, label: names.join(' vs '), detail: final ? score : t, tv: c.broadcasts?.[0]?.names?.[0] || '', rivalry, final, ours: true });
+        const sport = /hockey/.test(String(r.url)) ? '🏒 ' : /basketball/.test(String(r.url)) ? '🏀 ' : /baseball/.test(String(r.url)) ? '⚾ ' : '🏈 ';
+        out.push({ when: e.date, label: sport + names.join(' vs ').replace('Michigan St ', 'Michigan State ').replace(/Michigan St$/, 'Michigan State'), detail: final ? score.replace(/Michigan St /g, 'Michigan State ') : t, tv: c.broadcasts?.[0]?.names?.[0] || '', rivalry, final, ours: true });
       }
     } catch { /* skip this feed */ }
   }
