@@ -195,6 +195,20 @@ async function games(dayISO: string): Promise<Game[]> {
   return out.filter((g) => { const k = g.when + g.label; if (seen.has(k)) return false; seen.add(k); return true; }).sort((a, b) => a.when.localeCompare(b.when));
 }
 
+// Song previews: Apple's 30-second clip from the iTunes Search API. A direct audio file, so a tap just plays it.
+type Preview = { url: string; track: string; artist: string };
+async function preview(term: string, artistHint = '', pickIndex = 0): Promise<Preview | null> {
+  const r = await get(`https://itunes.apple.com/search?term=${encodeURIComponent(term)}&entity=song&limit=25&country=US`);
+  if (!r) return null;
+  try { const j: any = await r.json();
+    let hits = (j.results || []).filter((x: any) => x.previewUrl && /^https:\/\//.test(x.previewUrl));
+    if (artistHint) { const a = artistHint.toLowerCase(); const m = hits.filter((x: any) => String(x.artistName || '').toLowerCase().includes(a)); if (m.length) hits = m; }
+    const seen = new Set<string>(); hits = hits.filter((x: any) => { const k = String(x.trackName).toLowerCase().replace(/\s*\(.*\)$/, ''); if (seen.has(k)) return false; seen.add(k); return true; });
+    const x = hits[pickIndex % Math.max(hits.length, 1)]; return x ? { url: x.previewUrl, track: x.trackName, artist: x.artistName } : null;
+  } catch { return null; }
+}
+const directAudio = (u: unknown) => typeof u === 'string' && /^https:\/\//.test(u) && !/youtube\.com|youtu\.be/i.test(u);
+
 type Item = { date: string; time?: string | null; title: string; who?: string; tag: string; rank: number; link: string; senior?: boolean; event?: boolean; cid?: string };
 
 Deno.serve(async (req) => {
@@ -381,7 +395,11 @@ Deno.serve(async (req) => {
   const dark = (hex: string | null) => { if (!hex || !/^#[0-9a-f]{6}$/i.test(hex)) return false; const c = [1, 3, 5].map((i) => { const v = parseInt(hex.slice(i, i + 2), 16) / 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 1.05 / (0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2] + 0.05) >= 4.5; };
   const followedNames = ((artRes.data || []) as any[]).filter((a) => ((folRes.data || []) as any[]).some((f) => f.artist_id === a.id)).map((a) => String(a.name)).sort();
   const songArtist = followedNames.length ? followedNames[daysBetween('2026-01-01', today) % followedNames.length] : 'John Denver';
-  const songLink = 'https://www.youtube.com/results?search_query=' + encodeURIComponent(songArtist + ' official music video');
+  const dayN = daysBetween('2026-01-01', today);
+  const [themeSong, songOfDay] = await Promise.all([
+    themeItem && themeItem.song && themeItem.song.term ? preview(String(themeItem.song.term), String(themeItem.song.artist || '')) : Promise.resolve(null),
+    preview(songArtist, songArtist, dayN),
+  ]);
   const tc1 = dark(theme.color1) ? theme.color1 : '#3b1d6b', tc2 = dark(theme.color2) ? theme.color2 : '#5b21b6';
   const signoff = theme.signoff ? theme.signoff : bdayToday.length ? 'Cake tonight? 🍰' : SIGNOFFS[daysBetween('2026-01-01', today) % SIGNOFFS.length];
   const F = 'font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif';
@@ -415,10 +433,10 @@ Deno.serve(async (req) => {
     ${focusItems.map((i) => `<div style="margin:0 0 4px">✅ <a href="${h(i.link)}" style="color:#fff;font-weight:600;text-decoration:none">${h(i.title.replace(' (' + focusName + ')', ''))}</a> <span style="color:#ffcb05;font-size:13px">${h(when2(i))}</span></div>`).join('') || '<div style="font-size:14px">Nothing else open for it. Nice work!</div>'}
     <div style="margin-top:6px;font-size:13px"><a href="${APP}#/college/${h(focusCol.id)}" style="color:#ffcb05;font-weight:700">Open ${h(focusName)} →</a></div></div>` : ''}
   ${top3.length || pills.length ? sec('⭐', 'Top 3 today', '#b4400b') : ''}${pills.length ? `<div style="margin:0 0 6px">${pills.map((c) => { const n = daysBetween(today, c.date); return `<span style="display:inline-block;background:${n <= 3 ? '#c2255c' : '#1d3f8f'};color:#fff;border-radius:999px;padding:2px 10px;margin:0 4px 4px 0;font-size:12.5px;font-weight:700">${h(c.title.replace(' application due', ''))} · ${n <= 0 ? 'today!' : n === 1 ? '1 day' : n + ' days'}</span>`; }).join('')}</div>` : ''}${top3.map((i) => li(ico(i), i.title, i.link, (i.who && i.who !== 'Lily' ? i.who + ' · ' : '') + when2(i), i.date < today ? '#b4400b' : '#6b7280')).join('')}
-  ${themeItem || !theme.builtin ? `<div style="margin:16px 0 0;background-color:${tc1};background-image:linear-gradient(135deg,${tc1},${tc2});color:#fff;border-radius:16px;padding:14px 16px"><table role="presentation" style="border-collapse:collapse"><tr><td style="font-size:44px;line-height:1;padding-right:12px;vertical-align:top">${h(theme.emoji || '🎨')}</td><td>
-    <div style="font-size:11.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;opacity:.95">Theme of the ${theme.start_date === theme.end_date ? 'day' : 'week'} · ${h(theme.theme_name)}</div>
-    ${themeItem ? `<div style="font-size:18px;font-weight:800;line-height:1.3;margin:4px 0 2px">${themeItem.kind === 'quote' ? '“' + h(themeItem.text) + '”' : h(themeItem.text)}</div>${themeItem.by ? `<div style="font-size:13.5px;font-weight:600">— ${h(themeItem.by)}</div>` : ''}` : theme.tagline ? `<div style="font-size:17px;font-weight:800;margin-top:4px">${h(theme.tagline)}</div>` : ''}
-    <div style="margin-top:9px">${themeItem && themeItem.audio && /^https:\/\//.test(themeItem.audio) ? `<a href="${h(themeItem.audio)}" style="display:inline-block;margin:0 8px 6px 0;background:#ffffff;color:#1f1147;font-weight:900;font-size:15px;padding:8px 16px;border-radius:999px;text-decoration:none">🔊 ${h(themeItem.audio_label || 'Hear it')}</a>` : `<a href="${h(songLink)}" style="display:inline-block;margin:0 8px 6px 0;background:#ffffff;color:#1f1147;font-weight:900;font-size:15px;padding:8px 16px;border-radius:999px;text-decoration:none">🎵 Song of the day: ${h(songArtist)}</a>`}${themeItem && themeItem.link && /^https:\/\//.test(themeItem.link) ? `<a href="${h(themeItem.link)}" style="display:inline-block;margin:0 8px 6px 0;background:#ffe08a;color:#1f1147;font-weight:800;font-size:14px;padding:7px 14px;border-radius:999px;text-decoration:none">${h(themeItem.link_label || 'See more')} →</a>` : ''}</div></td></tr></table></div>` : `<div style="margin:16px 0 0;background:#f3e8ff;border-radius:14px;padding:10px 14px;color:#3b1d6b"><span style="font-size:15px;font-weight:800">${h(theme.emoji)} ${h(theme.theme_name)}</span> <a href="${h(songLink)}" style="display:inline-block;margin-left:6px;background:#5b21b6;color:#fff;font-weight:800;font-size:14px;padding:6px 14px;border-radius:999px;text-decoration:none">🎵 Song of the day: ${h(songArtist)}</a></div>`}
+  ${themeItem || !theme.builtin ? `<div style="margin:16px 0 0;background:#f8f7ff;border:2px solid ${tc1};border-left:8px solid ${tc1};color:#1f1147;border-radius:16px;padding:14px 16px"><table role="presentation" style="border-collapse:collapse"><tr><td style="font-size:44px;line-height:1;padding-right:12px;vertical-align:top">${h(theme.emoji || '🎨')}</td><td>
+    <div style="font-size:12px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;color:${tc1}">Theme of the ${theme.start_date === theme.end_date ? 'day' : 'week'} · ${h(theme.theme_name)}</div>
+    ${themeItem ? `<div style="font-size:19px;font-weight:900;line-height:1.3;margin:4px 0 2px;color:#111827">${themeItem.kind === 'quote' ? '“' + h(themeItem.text) + '”' : h(themeItem.text)}</div>${themeItem.by ? `<div style="font-size:14px;font-weight:700;color:#374151">— ${h(themeItem.by)}</div>` : ''}` : theme.tagline ? `<div style="font-size:17px;font-weight:800;margin-top:4px;color:#111827">${h(theme.tagline)}</div>` : ''}
+    <div style="margin-top:9px">${themeSong ? `<a href="${h(themeSong.url)}" style="display:inline-block;margin:0 8px 6px 0;background:${tc1};color:#ffffff;font-weight:900;font-size:15px;padding:9px 16px;border-radius:999px;text-decoration:none">▶️ Play: ${h(themeSong.track)}</a>` : themeItem && directAudio(themeItem.audio) ? `<a href="${h(themeItem.audio)}" style="display:inline-block;margin:0 8px 6px 0;background:${tc1};color:#ffffff;font-weight:900;font-size:15px;padding:9px 16px;border-radius:999px;text-decoration:none">▶️ ${h(themeItem.audio_label || 'Play it')}</a>` : songOfDay ? `<a href="${h(songOfDay.url)}" style="display:inline-block;margin:0 8px 6px 0;background:${tc1};color:#ffffff;font-weight:900;font-size:15px;padding:9px 16px;border-radius:999px;text-decoration:none">🎵 ${h(songOfDay.track)} · ${h(songOfDay.artist)}</a>` : ''}${themeItem && themeItem.link && /^https:\/\//.test(themeItem.link) ? `<a href="${h(themeItem.link)}" style="display:inline-block;margin:0 8px 6px 0;background:#ffe08a;color:#1f1147;border:2px solid #1f1147;font-weight:800;font-size:14px;padding:6px 14px;border-radius:999px;text-decoration:none">${h(themeItem.link_label || 'See more')} →</a>` : ''}</div></td></tr></table></div>` : `<div style="margin:16px 0 0;background:#f3e8ff;border-radius:14px;padding:10px 14px;color:#3b1d6b"><span style="font-size:15px;font-weight:800">${h(theme.emoji)} ${h(theme.theme_name)}</span> ${songOfDay ? `<a href="${h(songOfDay.url)}" style="display:inline-block;margin-left:6px;background:#5b21b6;color:#fff;font-weight:800;font-size:14px;padding:6px 14px;border-radius:999px;text-decoration:none">🎵 Play: ${h(songOfDay.track)} · ${h(songOfDay.artist)}</a>` : ''}</div>`}
   ${trip ? (() => { const x = tripInfo(trip), n = daysBetween(today, trip.start_date); return `<div style="margin:16px 0 0;background-color:#5b2a86;background-image:linear-gradient(135deg,#3b1d6b,#9c2559);color:#fff;border-radius:16px;padding:14px 16px"><table role="presentation" style="border-collapse:collapse;width:100%"><tr>
     <td style="vertical-align:top"><div style="font-size:11.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;opacity:.95">🧳 Next trip</div>
       <a href="${TRIPS}#/trip/${h(trip.id)}" style="display:block;color:#fff;text-decoration:none;font-size:22px;font-weight:800;line-height:1.15;margin:2px 0 4px">${h(trip.name)}</a>
@@ -479,8 +497,8 @@ Deno.serve(async (req) => {
     question ? `\nDINNER TABLE QUESTION: ${question}` : '',
     countdowns.length ? '\nCOUNTDOWNS: ' + countdowns.map((c) => `${c.title} ${c.n}d`).join(', ') : '',
     comic ? `\nCOMIC OF THE DAY (${comic.strip}): ${comic.title} ${comic.link}` : '',
-    `\nSONG OF THE DAY: ${songArtist} ${songLink}`,
-    `\nTHEME: ${theme.theme_name}${themeItem ? ' · ' + (themeItem.kind === 'quote' ? '"' + themeItem.text + '"' : themeItem.text) + (themeItem.by ? ' (' + themeItem.by + ')' : '') + (themeItem.audio ? ' Hear it: ' + themeItem.audio : '') + (themeItem.link ? ' ' + themeItem.link : '') : ''}`,
+    songOfDay ? `\nSONG OF THE DAY: ${songOfDay.track} by ${songOfDay.artist} (30-second preview) ${songOfDay.url}` : '',
+    `\nTHEME: ${theme.theme_name}${themeItem ? ' · ' + (themeItem.kind === 'quote' ? '"' + themeItem.text + '"' : themeItem.text) + (themeItem.by ? ' (' + themeItem.by + ')' : '') + (themeSong ? ' Play: ' + themeSong.track + ' ' + themeSong.url : directAudio(themeItem.audio) ? ' Play: ' + themeItem.audio : '') + (themeItem.link ? ' ' + themeItem.link : '') : ''}`,
     `\nMOON: ${moonName}`,
     fact ? `\nON THIS DAY, ${fact.year}: ${fact.text} ${fact.link}` : '',
     '\n' + signoff].filter((x) => x !== '').join('\n');
