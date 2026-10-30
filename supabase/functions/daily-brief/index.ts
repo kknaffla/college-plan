@@ -84,6 +84,27 @@ async function newRelease(artist: string, sinceISO: string): Promise<{ title: st
   } catch { return null; }
 }
 
+// Moon phase from the date alone (synodic month 29.53 days from a known new moon).
+function moon(iso: string): [string, string] {
+  const days = (Date.parse(iso + 'T12:00:00Z') - Date.UTC(2000, 0, 6, 18, 14)) / 86400000;
+  const age = ((days % 29.530588853) + 29.530588853) % 29.530588853, pct = Math.round((1 - Math.cos(2 * Math.PI * age / 29.530588853)) / 2 * 100);
+  const names: [string, string][] = [['🌑', 'New moon'], ['🌒', 'Waxing crescent'], ['🌓', 'First quarter'], ['🌔', 'Waxing gibbous'], ['🌕', 'Full moon'], ['🌖', 'Waning gibbous'], ['🌗', 'Last quarter'], ['🌘', 'Waning crescent']];
+  const i = Math.round(age / 29.530588853 * 8) % 8;
+  return [names[i][0], names[i][1] + (i === 0 || i === 4 ? '' : `, ${pct}% lit`)];
+}
+// A light "on this day" fact from Wikipedia: skips grim items, prefers older history, rotates daily.
+const GRIM = /\b(kill|dead|death|dies|died|massacre|bomb|attack|war|crash|collapse|earthquake|hurricane|shoot|murder|terror|assassinat|invasion|genocide|disaster|flood|fire|explosion|sink|sank|hostage|executed|riot|plague|famine|coup)\w*/i;
+async function onThisDay(iso: string): Promise<{ text: string; year: number; link: string } | null> {
+  const r = await get(`https://en.wikipedia.org/api/rest_v1/feed/onthisday/events/${+iso.slice(5, 7)}/${+iso.slice(8, 10)}`);
+  if (!r) return null;
+  try { const j: any = await r.json();
+    const ok = (j.events || []).filter((e: any) => e.year < 2010 && e.text && e.text.length < 160 && !GRIM.test(e.text) && e.pages?.[0]?.content_urls?.desktop?.page);
+    if (!ok.length) return null;
+    const e = ok[daysBetween('2026-01-01', iso) % ok.length];
+    return { text: e.text, year: e.year, link: e.pages[0].content_urls.desktop.page };
+  } catch { return null; }
+}
+
 type Item = { date: string; time?: string | null; title: string; who?: string; tag: string; rank: number; link: string; senior?: boolean; event?: boolean; cid?: string };
 
 Deno.serve(async (req) => {
@@ -195,6 +216,8 @@ Deno.serve(async (req) => {
     ...artists.map(async (a) => ({ a, news: (await rss(GN(`"${a.name}" when:7d`), 1))[0] || null, rel: await newRelease(a.name, addDays(today, -30)) })),
   ]);
   const music = (musicRaw as any[]).filter((m) => m.news || m.rel).slice(0, 4);
+  const [moonIco, moonName] = moon(today);
+  const fact = await onThisDay(today);
   // Fun fact: where the stars are heading (tours, concerts, sightings) from the last 3 days of news.
   const stars: string[] = Array.isArray(settings.stars) ? settings.stars.slice(0, 3) : [];
   const starNews = (await Promise.all(stars.map(async (n) => ({ n, it: (await rss(GN(`"${n}" (tour OR concert OR heading OR visits OR spotted OR stadium) when:3d`), 1))[0] || null })))).filter((x) => x.it);
@@ -232,7 +255,7 @@ Deno.serve(async (req) => {
     <div style="font-size:20px;font-weight:800">☀️ Knaffla Brief</div><div style="font-size:13px;opacity:.92">${h(wd)}, ${h(shortDate.slice(5))} · <a href="${HOME}" style="color:#ffd86b;font-weight:700;text-decoration:none">Family page →</a></div></div>
   ${bdayToday.map((b) => `<div style="background-color:#d6336c;background-image:linear-gradient(135deg,#c2255c,#e8590c 55%,#f08c00);color:#fff;border-radius:14px;padding:12px 16px;margin:0 0 10px;font-size:20px;font-weight:800;text-align:center">🎈🎂 Happy birthday, ${h(b.who)}! 🎉🎁</div>`).join('')}
   ${wxHome || wxSecond ? `<table role="presentation" style="width:100%;border-collapse:collapse;margin:0 -4px"><tr>${wxCard(wxHome, '#0b5f73', '#2f86c9')}${wxCard(wxSecond, '#b4400b', '#f08c00')}</tr></table>
-  ${wxHome ? `<div style="margin:6px 0 0;font-size:14px">👗 <b>Wear today:</b> ${h(wear(wxHome))}</div><div style="font-size:12.5px;color:#6b7280">🌅 ${ampm(wxHome.sunrise)} AM · 🌇 ${ampm(wxHome.sunset)} PM${tripSoon && wxSecond ? ` · For ${h(tripSoon.name)}: ${h(wear(wxSecond))}` : ''}</div>` : ''}` : ''}
+  ${wxHome ? `<div style="margin:6px 0 0;font-size:14px">👗 <b>Wear today:</b> ${h(wear(wxHome))}</div><div style="font-size:12.5px;color:#6b7280">🌅 ${ampm(wxHome.sunrise)} AM · 🌇 ${ampm(wxHome.sunset)} PM · ${moonIco} ${h(moonName)}${tripSoon && wxSecond ? ` · For ${h(tripSoon.name)}: ${h(wear(wxSecond))}` : ''}</div>` : ''}` : ''}
   ${focusCol ? `<div style="margin:16px 0 0;background-color:#1d3f8f;background-image:linear-gradient(135deg,#00274c,#1d3f8f);color:#fff;border-radius:14px;padding:12px 16px">
     <div style="font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:#ffcb05">🎯 Lily, focus on ${h(focusName)}</div>
     <div style="font-size:19px;font-weight:800;margin:2px 0 6px">${focusDays === null ? h(focusName) + ' application' : focusDays <= 0 ? 'Due today! 🙌' : focusDays === 1 ? 'Due tomorrow' : 'Due in ' + focusDays + ' days'}${focusCol.plan && focusCol.plan !== 'Undecided' ? ` <span style="font-size:13px;opacity:.85">(${h(focusCol.plan)})</span>` : ''}</div>
@@ -245,6 +268,7 @@ Deno.serve(async (req) => {
   ${entNews.length ? sec('🎬', 'Entertainment', '#8a1f5c') + entNews.map((n) => li('•', n.title, n.link, n.source)).join('') : ''}
   ${starNews.length ? sec('🌟', 'Where the stars are', '#c2255c') + starNews.map((x) => li('✨', x.it!.title, x.it!.link, x.it!.source)).join('') : ''}
   ${music.length ? sec('🎶', 'Music we follow', '#7b2ff7', HOME + 'music/') + music.map((m) => `<div style="margin:0 0 7px"><b style="color:#7b2ff7">${h(m.a.name)}</b> <span style="color:#9aa1a9;font-size:12px">${h(followers(m.a.id).join(', '))}</span>${m.rel ? `<br>💿 <a href="${h(m.rel.link)}" style="color:#1f2a23;font-weight:600;text-decoration:none">New: ${h(m.rel.title)}</a> <span style="color:#6b7280;font-size:13px">${h(nice(m.rel.date))}</span>` : ''}${m.news ? `<br>🗞️ <a href="${h(m.news.link)}" style="color:#1f2a23;text-decoration:none">${h(m.news.title)}</a> <span style="color:#6b7280;font-size:13px">${h(m.news.source)}</span>` : ''}</div>`).join('') : artists.length ? '' : sec('🎶', 'Follow some music', '#7b2ff7', HOME + 'music/') + '<div style="font-size:13.5px;color:#4b5563">Pick artists on the family page and their news shows up here.</div>'}
+  ${fact ? `<div style="margin:18px 0 0;background:#fff8e1;border-radius:12px;padding:10px 14px;font-size:14px"><b style="color:#a8640c">🤓 On this day, ${fact.year}:</b> ${h(fact.text)} <a href="${h(fact.link)}" style="color:#a8640c;font-weight:700;text-decoration:none">more →</a></div>` : ''}
   ${(() => { const B: [string, string, string, string][] = [['🎓 Lily', APP, '#1d3f8f', '#2f86c9'], ['📚 Amy', HOME + 'amy/', '#8a1f5c', '#d9486f'], ['🧳 Trips', TRIPS, '#5b2a86', '#c2306f'], ['📅 Calendar', HOME + 'calendar/', '#a3361f', '#d9762b'], ['🎶 Music', HOME + 'music/', '#2b1055', '#f107a3'], ['🏡 Family', HOME, '#0b5f73', '#138a6c']];
     return `<table role="presentation" style="width:100%;border-collapse:separate;border-spacing:6px;margin:16px -6px 0"><tr>${B.slice(0, 3).map(([t, u, c1, c2]) => `<td style="width:33%"><a href="${u}" style="display:block;text-align:center;background-color:${c1};background-image:linear-gradient(135deg,${c1},${c2});color:#fff;font-weight:800;font-size:15px;padding:14px 6px;border-radius:14px;text-decoration:none">${t}</a></td>`).join('')}</tr><tr>${B.slice(3).map(([t, u, c1, c2]) => `<td style="width:33%"><a href="${u}" style="display:block;text-align:center;background-color:${c1};background-image:linear-gradient(135deg,${c1},${c2});color:#fff;font-weight:800;font-size:15px;padding:14px 6px;border-radius:14px;text-decoration:none">${t}</a></td>`).join('')}</tr></table>`; })()}
   <div style="margin:14px 0 0;padding:10px 14px;border-radius:12px;background:#f3e8ff;font-size:15px;font-weight:800;color:#5b2a86;text-align:center">${h(signoff)}</div></div>`;
@@ -261,6 +285,8 @@ Deno.serve(async (req) => {
     entNews.length ? '\nENTERTAINMENT\n' + entNews.map((n) => `- ${n.title} (${n.source}) ${n.link}`).join('\n') : '',
     starNews.length ? '\nWHERE THE STARS ARE\n' + starNews.map((x) => `- ${x.it!.title} ${x.it!.link}`).join('\n') : '',
     music.length ? '\nMUSIC\n' + music.map((m) => `- ${m.a.name}: ${m.rel ? 'New: ' + m.rel.title + '. ' : ''}${m.news ? m.news.title : ''}`).join('\n') : '',
+    `\nMOON: ${moonName}`,
+    fact ? `\nON THIS DAY, ${fact.year}: ${fact.text} ${fact.link}` : '',
     '\n' + signoff].filter((x) => x !== '').join('\n');
   const subject = `☀️ Knaffla Brief, ${nice(today)}: ${bdayToday.length ? '🎂 Happy birthday, ' + bdayToday.map((b) => b.who).join(' and ') + '! · ' : ''}${focusCol && focusDays !== null && focusDays <= 7 ? `${focusName} ${focusDays <= 0 ? 'due today' : 'in ' + focusDays + ' days'} · ` : ''}${wxHome ? `${(WMO[wxHome.code] || ['🌡️'])[0]} ${wxHome.hi}°` : ''}`.slice(0, 120);
 
