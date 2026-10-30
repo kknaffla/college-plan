@@ -35,7 +35,56 @@ function sameToken(a: string, b: string): boolean {
 }
 const reply = (msg: string, status = 200) => new Response(msg, { status, headers: { 'content-type': 'text/plain; charset=utf-8' } });
 
-type Item = { date: string; time?: string | null; title: string; who?: string; tag: string; rank: number; link: string; senior?: boolean; event?: boolean };
+// ---------- outside sources (free, no keys): Open-Meteo weather, Google News RSS, iTunes Search ----------
+const get = async (url: string, ms = 6000) => { try { const r = await fetch(url, { signal: AbortSignal.timeout(ms), headers: { 'user-agent': 'KnafflaBrief/1.0' } }); return r.ok ? r : null; } catch { return null; } };
+const WMO: Record<number, [string, string]> = { 0: ['☀️', 'Sunny'], 1: ['🌤️', 'Mostly sunny'], 2: ['⛅', 'Partly cloudy'], 3: ['☁️', 'Cloudy'], 45: ['🌫️', 'Fog'], 48: ['🌫️', 'Fog'], 51: ['🌦️', 'Drizzle'], 53: ['🌦️', 'Drizzle'], 55: ['🌦️', 'Drizzle'], 56: ['🧊', 'Freezing drizzle'], 57: ['🧊', 'Freezing drizzle'], 61: ['🌧️', 'Rain'], 63: ['🌧️', 'Rain'], 65: ['🌧️', 'Heavy rain'], 66: ['🧊', 'Freezing rain'], 67: ['🧊', 'Freezing rain'], 71: ['🌨️', 'Snow'], 73: ['🌨️', 'Snow'], 75: ['❄️', 'Heavy snow'], 77: ['🌨️', 'Snow grains'], 80: ['🌦️', 'Showers'], 81: ['🌧️', 'Showers'], 82: ['⛈️', 'Heavy showers'], 85: ['🌨️', 'Snow showers'], 86: ['❄️', 'Snow showers'], 95: ['⛈️', 'Thunderstorms'], 96: ['⛈️', 'Thunderstorms'], 99: ['⛈️', 'Thunderstorms'] };
+type Wx = { name: string; now: number; hi: number; lo: number; feels: number; code: number; rain: number; wind: number; sunrise: string; sunset: string };
+async function weather(name: string, lat: number, lon: number): Promise<Wx | null> {
+  const r = await get(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,apparent_temperature,weather_code&daily=temperature_2m_max,temperature_2m_min,apparent_temperature_min,precipitation_probability_max,weather_code,wind_speed_10m_max,sunrise,sunset&temperature_unit=fahrenheit&wind_speed_unit=mph&timezone=auto&forecast_days=1`);
+  if (!r) return null;
+  try { const j: any = await r.json(); const d = j.daily;
+    return { name, now: Math.round(j.current.temperature_2m), feels: Math.round(d.apparent_temperature_min[0]), hi: Math.round(d.temperature_2m_max[0]), lo: Math.round(d.temperature_2m_min[0]), code: d.weather_code[0], rain: d.precipitation_probability_max[0] ?? 0, wind: Math.round(d.wind_speed_10m_max[0]), sunrise: String(d.sunrise[0]).slice(11, 16), sunset: String(d.sunset[0]).slice(11, 16) };
+  } catch { return null; }
+}
+async function geocode(place: string): Promise<[number, number] | null> {
+  const r = await get(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(place.split(',')[0].trim())}&count=1&country=US`);
+  if (!r) return null; try { const j: any = await r.json(); return j.results?.[0] ? [j.results[0].latitude, j.results[0].longitude] : null; } catch { return null; }
+}
+// What to wear, from the day's coldest "feels like", rain chance, snow and wind.
+function wear(w: Wx): string {
+  const f = w.feels, snow = [71, 73, 75, 77, 85, 86].includes(w.code);
+  let s = f < 15 ? 'Winter coat, hat, gloves and boots 🧤' : f < 32 ? 'Warm coat, hat and gloves 🧥' : f < 45 ? 'Jacket or fleece, maybe a hat 🧢' : f < 58 ? 'Light jacket or a sweatshirt' : f < 72 ? 'T-shirt, with a layer for the morning 👕' : 'Shorts and sunscreen 🕶️';
+  if (snow) s += ', snow boots ❄️'; else if (w.rain >= 50) s += ', rain jacket ☔';
+  if (w.wind >= 20) s += ', windy, zip up 💨';
+  return s;
+}
+const ampm = (hm: string) => { const [H, M] = hm.split(':').map(Number); return `${H % 12 || 12}:${String(M).padStart(2, '0')}`; };
+const decode = (s: string) => s.replace(/<!\[CDATA\[|\]\]>/g, '').replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').trim();
+type News = { title: string; source: string; link: string; date: number };
+async function rss(url: string, n: number): Promise<News[]> {
+  const r = await get(url); if (!r) return [];
+  const x = await r.text(), out: News[] = [];
+  for (const m of x.matchAll(/<item>([\s\S]*?)<\/item>/g)) {
+    const it = m[1], t = decode((it.match(/<title>([\s\S]*?)<\/title>/) || [])[1] || ''), l = decode((it.match(/<link>([\s\S]*?)<\/link>/) || [])[1] || ''), src = decode((it.match(/<source[^>]*>([\s\S]*?)<\/source>/) || [])[1] || '');
+    const d = Date.parse((it.match(/<pubDate>([\s\S]*?)<\/pubDate>/) || [])[1] || '') || 0;
+    if (!t || !/^https:\/\//.test(l)) continue;
+    out.push({ title: src && t.endsWith(' - ' + src) ? t.slice(0, -(src.length + 3)) : t, source: src, link: l, date: d });
+    if (out.length >= n) break;
+  }
+  return out;
+}
+const GN = (q: string) => `https://news.google.com/rss/search?q=${encodeURIComponent(q)}&hl=en-US&gl=US&ceid=US:en`;
+async function newRelease(artist: string, sinceISO: string): Promise<{ title: string; date: string; link: string } | null> {
+  const r = await get(`https://itunes.apple.com/search?term=${encodeURIComponent(artist)}&entity=album&limit=10&country=US`);
+  if (!r) return null;
+  try { const j: any = await r.json();
+    const hits = (j.results || []).filter((a: any) => String(a.artistName || '').toLowerCase().includes(artist.toLowerCase()) && String(a.releaseDate || '').slice(0, 10) >= sinceISO)
+      .sort((a: any, b: any) => String(b.releaseDate).localeCompare(String(a.releaseDate)));
+    return hits[0] ? { title: hits[0].collectionName, date: String(hits[0].releaseDate).slice(0, 10), link: hits[0].collectionViewUrl } : null;
+  } catch { return null; }
+}
+
+type Item = { date: string; time?: string | null; title: string; who?: string; tag: string; rank: number; link: string; senior?: boolean; event?: boolean; cid?: string };
 
 Deno.serve(async (req) => {
   if (req.method !== 'POST') return reply('Use POST.', 405);
@@ -81,6 +130,13 @@ Deno.serve(async (req) => {
     sb.from('trips').select('id,name,destination,start_date,end_date,status,trip_items(title,kind,done)').not('start_date', 'is', null).gte('end_date', today).lte('start_date', addDays(today, 30)).order('start_date'),
     sb.from('family_dates').select('title,kind,month,day,on_date,note'),
   ]);
+  const [setRes, artRes, folRes, memRes] = await Promise.all([
+    sb.from('brief_settings').select('lily_focus,places,stars').eq('id', 1).maybeSingle(),
+    sb.from('music_artists').select('id,name'),
+    sb.from('music_follows').select('artist_id,user_id'),
+    sb.from('members').select('user_id,display_name'),
+  ]);
+  const settings: any = setRes.data || {};
 
   const cname = new Map((colleges.data || []).map((c: any) => [c.id, SHORT[c.name] || c.name]));
   const items: Item[] = [];
@@ -88,11 +144,11 @@ Deno.serve(async (req) => {
     if (CLOSED.includes(t.status)) continue;
     if (t.is_event && t.due_date < today) continue; // past events simply drop off
     const col = t.college_id ? cname.get(t.college_id) : '';
-    items.push({ date: t.due_date, time: t.due_time, title: t.title + (col && !t.title.includes(col) ? ` (${col})` : ''), who: t.owner === 'Parent' ? 'Parents' : t.owner, tag: t.is_event ? 'Event' : 'Task', rank: t.priority || 3, link: APP + '#/task/' + t.id, senior: t.category === 'Senior year', event: !!t.is_event });
+    items.push({ date: t.due_date, time: t.due_time, title: t.title + (col && !t.title.includes(col) ? ` (${col})` : ''), who: t.owner === 'Parent' ? 'Parents' : t.owner, tag: t.is_event ? 'Event' : 'Task', rank: t.priority || 3, link: APP + '#/task/' + t.id, senior: t.category === 'Senior year', event: !!t.is_event, cid: t.college_id || undefined });
   }
   for (const c of (colleges.data || []) as any[]) {
     if (!c.deadline || COLLEGE_DONE.includes(c.status)) continue;
-    items.push({ date: c.deadline, time: c.deadline_time, title: `${SHORT[c.name] || c.name} application due${c.plan && c.plan !== 'Undecided' ? ' (' + c.plan + ')' : ''}`, tag: 'Deadline', rank: 0, link: APP + '#/college/' + c.id });
+    items.push({ date: c.deadline, time: c.deadline_time, title: `${SHORT[c.name] || c.name} application due${c.plan && c.plan !== 'Undecided' ? ' (' + c.plan + ')' : ''}`, tag: 'Deadline', rank: 0, link: APP + '#/college/' + c.id, cid: c.id });
   }
   for (const s of (sch.data || []) as any[]) {
     if (!['Planning', 'In progress'].includes(s.status)) continue;
@@ -115,7 +171,8 @@ Deno.serve(async (req) => {
   const dbDates = ((datesRes.data || []) as any[]).map((r) => ({ date: r.on_date || nextYearly(r.month, r.day), title: (r.kind === 'Birthday' ? '🎂 ' : '') + r.title, note: r.note || '', link: HOME, birthday: r.kind === 'Birthday', who: String(r.title).split("'")[0] }));
   const famDates = [...FAMILY_DATES.map((d) => ({ ...d, birthday: false, who: '' })), ...dbDates].filter((d) => d.date >= today && d.date <= addDays(today, 14)).sort((a, b) => a.date.localeCompare(b.date));
   const bdayToday = famDates.filter((d) => d.birthday && d.date === today);
-  const inDays = (iso: string) => { const n = daysBetween(today, iso); return n < 0 ? `${-n} day${n === -1 ? '' : 's'} overdue` : n === 0 ? 'today' : n === 1 ? 'tomorrow' : `in ${n} days`; };
+  // Kevin's wording: nothing is "overdue"; past-due items are things to focus on.
+  const inDays = (iso: string) => { const n = daysBetween(today, iso); return n < 0 ? 'focus on' : n === 0 ? 'today' : n === 1 ? 'tomorrow' : `in ${n} days`; };
   const tripInfo = (t: any) => {
     const need = (t.trip_items || []).filter((x: any) => x.kind === 'Booking' && !x.done).map((x: any) => x.title);
     const span = nice(t.start_date) + (t.end_date && t.end_date !== t.start_date ? ' to ' + nice(t.end_date) : '');
@@ -123,40 +180,87 @@ Deno.serve(async (req) => {
   };
   const when = (i: Item) => (i.date === today ? 'Today' : nice(i.date)) + (i.time ? ', ' + i.time : '');
 
-  // Short on purpose: one line per item and only the top few per section. The full lists live in each plan.
-  const C = { lily: '#1d3f8f', amy: '#8a1f5c', trip: '#5b2a86', dates: '#a3361f', muted: '#6b7280', late: '#b42318' };
-  const head = (t: string, link: string, c: string) => `<div style="margin:16px 0 4px;font-size:15px;font-weight:800"><a href="${link}" style="color:${c};text-decoration:none">${h(t)}</a></div>`;
-  const row = (title: string, link: string, meta: string, late = false, ico = '•') => `<div style="margin:0 0 4px">${late ? '⏰' : ico} <a href="${h(link)}" style="color:#1f2a23;text-decoration:none;font-weight:600">${h(title)}</a> <span style="color:${late ? C.late : C.muted};font-size:13px">${h(meta)}</span></div>`;
-  const lilyAll = [...overdue, ...dueToday, ...week, ...seniorNext.filter((i) => i.date <= addDays(today, 7))].filter((i, k, arr) => i !== top && arr.indexOf(i) === k && !(i.tag === 'Deadline' && countdown.slice(0, 4).includes(i)));
-  const lily = lilyAll.slice(0, 4), lilyMore = lilyAll.length - lily.length;
-  const meta = (i: Item) => i.date < today ? inDays(i.date) : (i.date === today ? 'today' : nice(i.date)) + (i.time ? ', ' + i.time : '');
-  const amyTop = amy.slice(0, 2), trip = trips[0], dates = famDates.slice(0, 3);
+  // ---------- outside sections: weather, headlines, music (each optional; the email still goes out without them) ----------
+  const places: any[] = Array.isArray(settings.places) && settings.places.length ? settings.places : [{ name: 'Ann Arbor', lat: 42.2808, lon: -83.743 }];
+  const tripSoon = trips.find((t) => t.start_date <= addDays(today, 7) && t.destination);
+  const tripGeo = tripSoon ? await geocode(tripSoon.destination) : null;
+  const second = tripSoon && tripGeo ? { name: '🧳 ' + tripSoon.destination, lat: tripGeo[0], lon: tripGeo[1] } : places[daysBetween('2026-01-01', today) % places.length];
+  const followedIds = new Set(((folRes.data || []) as any[]).map((f) => f.artist_id));
+  const followers = (id: string) => ((folRes.data || []) as any[]).filter((f) => f.artist_id === id).map((f) => (((memRes.data || []) as any[]).find((m) => m.user_id === f.user_id)?.display_name || '').split(' ')[0]).filter(Boolean);
+  const artists = ((artRes.data || []) as any[]).filter((a) => followedIds.has(a.id)).slice(0, 12);
+  const [wxHome, wxSecond, topNews, upNews, entNews, ...musicRaw] = await Promise.all([
+    weather('Manistique', 45.9575, -86.2463), weather(second.name, second.lat, second.lon),
+    rss('https://news.google.com/rss?hl=en-US&gl=US&ceid=US:en', 3), rss(GN('Upper Peninsula Michigan when:2d'), 1),
+    rss('https://news.google.com/rss/headlines/section/topic/ENTERTAINMENT?hl=en-US&gl=US&ceid=US:en', 2),
+    ...artists.map(async (a) => ({ a, news: (await rss(GN(`"${a.name}" when:7d`), 1))[0] || null, rel: await newRelease(a.name, addDays(today, -30)) })),
+  ]);
+  const music = (musicRaw as any[]).filter((m) => m.news || m.rel).slice(0, 4);
+  // Fun fact: where the stars are heading (tours, concerts, sightings) from the last 3 days of news.
+  const stars: string[] = Array.isArray(settings.stars) ? settings.stars.slice(0, 3) : [];
+  const starNews = (await Promise.all(stars.map(async (n) => ({ n, it: (await rss(GN(`"${n}" (tour OR concert OR heading OR visits OR spotted OR stadium) when:3d`), 1))[0] || null })))).filter((x) => x.it);
+
+  // ---------- Lily's focus college and the top 3 ----------
+  const focusCol = ((colleges.data || []) as any[]).find((c) => settings.lily_focus && c.name === settings.lily_focus && !COLLEGE_DONE.includes(c.status));
+  const focusName = focusCol ? (SHORT[focusCol.name] || focusCol.name) : '';
+  const isFocus = (i: Item) => !!focusCol && (i.cid === focusCol.id || i.title.includes(focusName));
+  const open = items.filter((i) => !(i.event && i.date < today) && i.date <= addDays(today, 7));
+  const focusItems = open.filter((i) => isFocus(i) && i.tag !== 'Deadline').sort((a, b) => a.date.localeCompare(b.date) || a.rank - b.rank).slice(0, 3);
+  const focusDays = focusCol && focusCol.deadline ? daysBetween(today, focusCol.deadline) : null;
+  const amyItems: Item[] = amy.map((t) => ({ date: t.due_date, title: t.title, who: 'Amy', tag: 'Task', rank: 2, link: AMY }));
+  const top3 = [...open.filter((i) => !isFocus(i) && i.tag !== 'Deadline'), ...amyItems.filter((i) => i.date <= addDays(today, 7))]
+    .sort((a, b) => (a.date < today ? 0 : 1) - (b.date < today ? 0 : 1) || a.rank - b.rank || a.date.localeCompare(b.date)).slice(0, 3);
+  const pills = countdown.filter((c) => !(focusCol && c.cid === focusCol.id)).slice(0, 3);
+  const trip = trips[0], dates = famDates.slice(0, 2);
+  const when2 = (i: Item) => i.date < today ? 'focus on' : i.date === today ? 'today' + (i.time ? ', ' + i.time : '') : nice(i.date);
+
+  // ---------- email ----------
   const wd = new Date(today + 'T12:00:00Z').toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' });
+  const shortDate = new Date(today + 'T12:00:00Z').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' });
   const SIGNOFFS = [`Have a great ${wd}, Knafflas! 🌲`, `Go get ${wd}! 💪`, `You've got this, team! 🙌`, `Make it a good one! ☀️`, `Lake Michigan says hi! 🌊`, `Onward, Knafflas! 🚀`, `Happy ${wd}! 🎉`];
   const signoff = bdayToday.length ? 'Cake tonight? 🍰' : SIGNOFFS[daysBetween('2026-01-01', today) % SIGNOFFS.length];
-  const shortDate = new Date(today + 'T12:00:00Z').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' });
+  const F = 'font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif';
+  const sec = (emoji: string, t: string, c: string, link?: string) => `<div style="margin:18px 0 6px;font-size:16px;font-weight:800;color:${c}">${emoji} ${link ? `<a href="${h(link)}" style="color:${c};text-decoration:none">${h(t)}</a>` : h(t)}</div>`;
+  const li = (ico: string, title: string, link: string, meta: string, metaColor = '#6b7280') => `<div style="margin:0 0 5px">${ico} <a href="${h(link)}" style="color:#1f2a23;text-decoration:none;font-weight:600">${h(title)}</a> <span style="color:${metaColor};font-size:13px">${h(meta)}</span></div>`;
+  const wxCard = (w: Wx | null, c1: string, c2: string) => w ? `<td style="width:50%;padding:4px;vertical-align:top"><div style="background-color:${c1};background-image:linear-gradient(135deg,${c1},${c2});color:#fff;border-radius:12px;padding:10px 12px">
+      <div style="font-size:13px;font-weight:700;opacity:.92">${h(w.name)}</div>
+      <div style="font-size:26px;font-weight:800;line-height:1.1">${(WMO[w.code] || ['🌡️'])[0]} ${w.now}°</div>
+      <div style="font-size:12.5px">${h((WMO[w.code] || ['', ''])[1])} · ${w.hi}°/${w.lo}°${w.rain >= 30 ? ` · ${w.rain}% rain` : ''}</div></div></td>` : '';
+  const ico = (i: Item) => i.date < today ? '🎯' : i.tag === 'Scholarship' ? '🏆' : i.event ? '📅' : i.who === 'Amy' ? '📚' : '📝';
 
-  const html = `<div style="font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;max-width:520px;margin:0 auto;color:#1f2a23;font-size:15px;line-height:1.4">
-  <div style="background-color:#3b2a7a;background-image:linear-gradient(135deg,#1d3f8f,#5b2a86 55%,#c2306f);color:#fff;border-radius:12px;padding:10px 14px;margin:0 0 12px;font-size:17px;font-weight:800">☀️ Knaffla Brief <span style="font-weight:600;font-size:14px;opacity:.9">· ${h(shortDate)}</span> <a href="${HOME}" style="float:right;color:#ffd86b;font-size:13px;font-weight:700;text-decoration:none;line-height:24px">Family page →</a></div>
-  ${bdayToday.map((b) => `<div style="background-color:#d6336c;background-image:linear-gradient(135deg,#c2255c,#e8590c 55%,#f08c00);color:#fff;border-radius:12px;padding:10px 14px;margin:0 0 12px;font-size:18px;font-weight:800;text-align:center">🎂 Happy birthday, ${h(b.who)}! 🎉</div>`).join('')}
-  ${top ? `<div style="background:#fff8e1;border-left:4px solid #f0b429;border-radius:8px;padding:8px 12px">⭐ <a href="${h(top.link)}" style="color:#1f2a23;font-weight:800;text-decoration:none">${h(top.title)}</a> <span style="color:${C.muted};font-size:13px">${h(when(top))}</span></div>` : ''}
-  ${head('🎓 Lily', APP, C.lily)}${countdown.length ? `<div style="margin:0 0 6px">${countdown.slice(0, 4).map((c) => { const n = daysBetween(today, c.date); return `<span style="display:inline-block;background:${n <= 3 ? '#c2255c' : C.lily};color:#fff;border-radius:999px;padding:2px 10px;margin:0 4px 4px 0;font-size:12.5px;font-weight:700">${h(c.title.replace(' application due', ''))} · ${n === 0 ? 'today!' : n === 1 ? '1 day' : n + ' days'}</span>`; }).join('')}</div>` : ''}${lily.length ? lily.map((i) => row(i.title, i.link, meta(i), i.date < today, i.tag === 'Scholarship' ? '🏆' : i.tag === 'Deadline' ? '🎯' : i.event ? '📅' : '📝')).join('') : `<div style="color:${C.muted};font-size:14px">Nothing else this week.</div>`}${lilyMore > 0 ? `<div style="font-size:13px"><a href="${APP}#/tasks" style="color:${C.lily}">+ ${lilyMore} more</a></div>` : ''}
-  ${amyTop.length ? head('📚 Amy', AMY, C.amy) + amyTop.map((t) => row(t.title, AMY, inDays(t.due_date), t.due_date < today, '📝')).join('') : ''}
-  ${trip ? head('🧳 ' + trip.name, TRIPS + '#/trip/' + trip.id, C.trip) + `<div style="font-size:13px;color:${C.muted}">${h(tripInfo(trip).soon)}${tripInfo(trip).need.length ? ' · to book: ' + h(tripInfo(trip).need.join(', ')) : ' · all booked'}</div>` : ''}
-  ${dates.length ? head('🗓️ Dates', HOME + 'calendar/', C.dates) + dates.map((d) => row(d.title.replace('🎂 ', ''), d.link, inDays(d.date), false, d.birthday ? '🎂' : '📌')).join('') : ''}
-  <div style="margin:16px 0 0;font-size:14px;font-weight:700;color:#5b2a86">${h(signoff)}</div>
-  <div style="margin:4px 0 0;font-size:12px;color:#9aa1a9">Mark things done and they drop off tomorrow.</div></div>`;
+  const html = `<div style="${F};max-width:540px;margin:0 auto;color:#1f2a23;font-size:15px;line-height:1.4">
+  <div style="background-color:#3b2a7a;background-image:linear-gradient(135deg,#1d3f8f,#5b2a86 50%,#f107a3);color:#fff;border-radius:14px;padding:12px 16px;margin:0 0 10px">
+    <div style="font-size:20px;font-weight:800">☀️ Knaffla Brief</div><div style="font-size:13px;opacity:.92">${h(wd)}, ${h(shortDate.slice(5))} · <a href="${HOME}" style="color:#ffd86b;font-weight:700;text-decoration:none">Family page →</a></div></div>
+  ${bdayToday.map((b) => `<div style="background-color:#d6336c;background-image:linear-gradient(135deg,#c2255c,#e8590c 55%,#f08c00);color:#fff;border-radius:14px;padding:12px 16px;margin:0 0 10px;font-size:20px;font-weight:800;text-align:center">🎈🎂 Happy birthday, ${h(b.who)}! 🎉🎁</div>`).join('')}
+  ${wxHome || wxSecond ? `<table role="presentation" style="width:100%;border-collapse:collapse;margin:0 -4px"><tr>${wxCard(wxHome, '#0b5f73', '#2f86c9')}${wxCard(wxSecond, '#b4400b', '#f08c00')}</tr></table>
+  ${wxHome ? `<div style="margin:6px 0 0;font-size:14px">👗 <b>Wear today:</b> ${h(wear(wxHome))}</div><div style="font-size:12.5px;color:#6b7280">🌅 ${ampm(wxHome.sunrise)} AM · 🌇 ${ampm(wxHome.sunset)} PM${tripSoon && wxSecond ? ` · For ${h(tripSoon.name)}: ${h(wear(wxSecond))}` : ''}</div>` : ''}` : ''}
+  ${focusCol ? `<div style="margin:16px 0 0;background-color:#1d3f8f;background-image:linear-gradient(135deg,#00274c,#1d3f8f);color:#fff;border-radius:14px;padding:12px 16px">
+    <div style="font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:#ffcb05">🎯 Lily, focus on ${h(focusName)}</div>
+    <div style="font-size:19px;font-weight:800;margin:2px 0 6px">${focusDays === null ? h(focusName) + ' application' : focusDays <= 0 ? 'Due today! 🙌' : focusDays === 1 ? 'Due tomorrow' : 'Due in ' + focusDays + ' days'}${focusCol.plan && focusCol.plan !== 'Undecided' ? ` <span style="font-size:13px;opacity:.85">(${h(focusCol.plan)})</span>` : ''}</div>
+    ${focusItems.map((i) => `<div style="margin:0 0 4px">✅ <a href="${h(i.link)}" style="color:#fff;font-weight:600;text-decoration:none">${h(i.title.replace(' (' + focusName + ')', ''))}</a> <span style="color:#ffcb05;font-size:13px">${h(when2(i))}</span></div>`).join('') || '<div style="font-size:14px">Nothing else open for it. Nice work!</div>'}
+    <div style="margin-top:6px;font-size:13px"><a href="${APP}#/college/${h(focusCol.id)}" style="color:#ffcb05;font-weight:700">Open ${h(focusName)} →</a></div></div>` : ''}
+  ${top3.length || pills.length ? sec('⭐', 'Top 3 today', '#b4400b') : ''}${pills.length ? `<div style="margin:0 0 6px">${pills.map((c) => { const n = daysBetween(today, c.date); return `<span style="display:inline-block;background:${n <= 3 ? '#c2255c' : '#1d3f8f'};color:#fff;border-radius:999px;padding:2px 10px;margin:0 4px 4px 0;font-size:12.5px;font-weight:700">${h(c.title.replace(' application due', ''))} · ${n <= 0 ? 'today!' : n === 1 ? '1 day' : n + ' days'}</span>`; }).join('')}</div>` : ''}${top3.map((i) => li(ico(i), i.title, i.link, (i.who && i.who !== 'Lily' ? i.who + ' · ' : '') + when2(i), i.date < today ? '#b4400b' : '#6b7280')).join('')}
+  ${trip ? sec('🧳', trip.name, '#5b2a86', TRIPS + '#/trip/' + trip.id) + `<div style="font-size:13.5px;color:#4b5563">${h(tripInfo(trip).soon)}${trip.destination ? ' · ' + h(trip.destination) : ''}${tripInfo(trip).need.length ? ' · to book: ' + h(tripInfo(trip).need.join(', ')) : ' · all booked 🎉'}</div>` : ''}
+  ${dates.length ? sec('🗓️', 'Coming up', '#a3361f', HOME + 'calendar/') + dates.map((d) => li(d.birthday ? '🎂' : '📌', d.title.replace('🎂 ', ''), d.link, inDays(d.date))).join('') : ''}
+  ${topNews.length || upNews.length ? sec('📰', 'Headlines', '#0b5f73') + [...topNews, ...upNews.map((n) => ({ ...n, source: (n.source || '') + ' · Up North' }))].map((n) => li('•', n.title, n.link, n.source)).join('') : ''}
+  ${entNews.length ? sec('🎬', 'Entertainment', '#8a1f5c') + entNews.map((n) => li('•', n.title, n.link, n.source)).join('') : ''}
+  ${starNews.length ? sec('🌟', 'Where the stars are', '#c2255c') + starNews.map((x) => li('✨', x.it!.title, x.it!.link, x.it!.source)).join('') : ''}
+  ${music.length ? sec('🎶', 'Music we follow', '#7b2ff7', HOME + 'music/') + music.map((m) => `<div style="margin:0 0 7px"><b style="color:#7b2ff7">${h(m.a.name)}</b> <span style="color:#9aa1a9;font-size:12px">${h(followers(m.a.id).join(', '))}</span>${m.rel ? `<br>💿 <a href="${h(m.rel.link)}" style="color:#1f2a23;font-weight:600;text-decoration:none">New: ${h(m.rel.title)}</a> <span style="color:#6b7280;font-size:13px">${h(nice(m.rel.date))}</span>` : ''}${m.news ? `<br>🗞️ <a href="${h(m.news.link)}" style="color:#1f2a23;text-decoration:none">${h(m.news.title)}</a> <span style="color:#6b7280;font-size:13px">${h(m.news.source)}</span>` : ''}</div>`).join('') : artists.length ? '' : sec('🎶', 'Follow some music', '#7b2ff7', HOME + 'music/') + '<div style="font-size:13.5px;color:#4b5563">Pick artists on the family page and their news shows up here.</div>'}
+  <div style="margin:18px 0 0;padding:10px 14px;border-radius:12px;background:#f3e8ff;font-size:15px;font-weight:800;color:#5b2a86">${h(signoff)}</div></div>`;
 
-  const text = [`Knaffla Brief, ${shortDate}  ${HOME}`,
+  const text = [`KNAFFLA BRIEF, ${wd}, ${shortDate.slice(5)}  ${HOME}`,
     ...bdayToday.map((b) => `HAPPY BIRTHDAY, ${b.who.toUpperCase()}!`),
-    top ? `* ${top.title} (${when(top)})` : '',
-    '\nLILY' + (countdown.length ? ': ' + countdown.slice(0, 4).map((c) => `${c.title.replace(' application due', '')} ${daysBetween(today, c.date)}d`).join(', ') : ''),
-    ...lily.map((i) => `- ${i.title} (${meta(i)})`), lilyMore > 0 ? `+ ${lilyMore} more: ${APP}#/tasks` : '',
-    amyTop.length ? '\nAMY\n' + amyTop.map((t) => `- ${t.title} (${inDays(t.due_date)})`).join('\n') : '',
+    wxHome ? `\nWEATHER: Manistique ${wxHome.now}° ${(WMO[wxHome.code] || ['', ''])[1]}, ${wxHome.hi}°/${wxHome.lo}°. Wear: ${wear(wxHome)}` : '',
+    wxSecond ? `${wxSecond.name.replace('🧳 ', '')} ${wxSecond.now}° ${(WMO[wxSecond.code] || ['', ''])[1]}, ${wxSecond.hi}°/${wxSecond.lo}°` : '',
+    focusCol ? `\nLILY, FOCUS ON ${focusName.toUpperCase()}${focusDays !== null ? ` (due ${focusDays <= 0 ? 'today' : 'in ' + focusDays + ' days'})` : ''}\n` + focusItems.map((i) => `- ${i.title} (${when2(i)})`).join('\n') : '',
+    top3.length ? '\nTOP 3\n' + top3.map((i) => `- ${i.title} (${(i.who && i.who !== 'Lily' ? i.who + ', ' : '') + when2(i)})`).join('\n') : '',
     trip ? `\nTRIP: ${trip.name}, ${tripInfo(trip).soon}${tripInfo(trip).need.length ? '. To book: ' + tripInfo(trip).need.join(', ') : ''}` : '',
-    dates.length ? '\nDATES\n' + dates.map((d) => `- ${d.title.replace('🎂 ', '')} (${inDays(d.date)})`).join('\n') : '',
+    dates.length ? '\nCOMING UP\n' + dates.map((d) => `- ${d.title.replace('🎂 ', '')} (${inDays(d.date)})`).join('\n') : '',
+    topNews.length ? '\nHEADLINES\n' + [...topNews, ...upNews].map((n) => `- ${n.title} (${n.source}) ${n.link}`).join('\n') : '',
+    entNews.length ? '\nENTERTAINMENT\n' + entNews.map((n) => `- ${n.title} (${n.source}) ${n.link}`).join('\n') : '',
+    starNews.length ? '\nWHERE THE STARS ARE\n' + starNews.map((x) => `- ${x.it!.title} ${x.it!.link}`).join('\n') : '',
+    music.length ? '\nMUSIC\n' + music.map((m) => `- ${m.a.name}: ${m.rel ? 'New: ' + m.rel.title + '. ' : ''}${m.news ? m.news.title : ''}`).join('\n') : '',
     '\n' + signoff].filter((x) => x !== '').join('\n');
-  const subject = `Knaffla Brief, ${nice(today)}: ${bdayToday.length ? '🎂 Happy birthday, ' + bdayToday.map((b) => b.who).join(' and ') + '! · ' : ''}${top ? top.title : 'nothing due this week'}`.slice(0, 120);
+  const subject = `☀️ Knaffla Brief, ${nice(today)}: ${bdayToday.length ? '🎂 Happy birthday, ' + bdayToday.map((b) => b.who).join(' and ') + '! · ' : ''}${focusCol && focusDays !== null && focusDays <= 7 ? `${focusName} ${focusDays <= 0 ? 'due today' : 'in ' + focusDays + ' days'} · ` : ''}${wxHome ? `${(WMO[wxHome.code] || ['🌡️'])[0]} ${wxHome.hi}°` : ''}`.slice(0, 120);
 
   const user = Deno.env.get('GMAIL_USER'), pass = Deno.env.get('GMAIL_APP_PASSWORD');
   if (!user || !pass) return reply('Email secrets are not set yet.', 500);
