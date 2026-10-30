@@ -242,7 +242,7 @@ Deno.serve(async (req) => {
   const [amyRes, tripRes, datesRes] = await Promise.all([
     sb.from('amy_tasks').select('title,due_date,owner,status,category').not('due_date', 'is', null).lte('due_date', addDays(today, 14)),
     sb.from('trips').select('id,name,destination,start_date,end_date,status,trip_items(title,kind,done)').not('start_date', 'is', null).gte('end_date', today).lte('start_date', addDays(today, 30)).order('start_date'),
-    sb.from('family_dates').select('title,kind,month,day,on_date,note'),
+    sb.from('family_dates').select('title,kind,month,day,on_date,end_date,note'),
   ]);
   const [setRes, artRes, folRes, memRes] = await Promise.all([
     sb.from('brief_settings').select('lily_focus,places,stars').eq('id', 1).maybeSingle(),
@@ -282,11 +282,13 @@ Deno.serve(async (req) => {
   const trips = ((tripRes.data || []) as any[]).filter((t) => !['Done', 'Cancelled', 'Idea'].includes(t.status)).slice(0, 2);
   // Yearly dates (birthdays) land on their next occurrence; one-time dates on their day.
   const nextYearly = (m: number, d: number) => { const y = +today.slice(0, 4); const pad = (n: number) => String(n).padStart(2, '0'); const iso = `${y}-${pad(m)}-${pad(d)}`; return iso >= today ? iso : `${y + 1}-${pad(m)}-${pad(d)}`; };
-  const dbDates = ((datesRes.data || []) as any[]).map((r) => ({ date: r.on_date || nextYearly(r.month, r.day), title: (r.kind === 'Birthday' ? '🎂 ' : '') + r.title, note: r.note || '', link: HOME, birthday: r.kind === 'Birthday', who: String(r.title).split("'")[0] }));
+  // School days off and half days can be ranges (end_date). A range already under way shows as "today".
+  const dbDates = ((datesRes.data || []) as any[]).map((r) => { const start = r.on_date || nextYearly(r.month, r.day), end = r.end_date || start;
+    return { date: start < today && end >= today ? today : start, start, end, kind: r.kind as string, title: (r.kind === 'Birthday' ? '🎂 ' : '') + r.title, note: r.note || '', link: HOME + 'calendar/', birthday: r.kind === 'Birthday', who: String(r.title).split("'")[0] }; });
   const thanksgiving = (y: number) => { const d = new Date(Date.UTC(y, 10, 1)); const first = (4 - d.getUTCDay() + 7) % 7 + 1; return `${y}-11-${String(first + 21).padStart(2, '0')}`; };
   const holDates = HOLIDAYS.map(([t, m, d]) => { const date = t.includes('Thanksgiving') ? (thanksgiving(+today.slice(0, 4)) >= today ? thanksgiving(+today.slice(0, 4)) : thanksgiving(+today.slice(0, 4) + 1)) : nextYearly(m, d);
     return { date, title: t, note: '', link: HOME + 'calendar/', birthday: false, holiday: true, who: '' }; });
-  const famDates = [...FAMILY_DATES.map((d) => ({ ...d, birthday: false, holiday: false, who: '' })), ...dbDates.map((d) => ({ ...d, holiday: false })), ...holDates].filter((d) => d.date >= today && d.date <= addDays(today, 14)).sort((a, b) => a.date.localeCompare(b.date));
+  const famDates = [...FAMILY_DATES.map((d) => ({ ...d, birthday: false, holiday: false, who: '', kind: 'Event', start: d.date, end: d.date })), ...dbDates.map((d) => ({ ...d, holiday: d.kind === 'Holiday' })), ...holDates.map((d) => ({ ...d, kind: 'Holiday', start: d.date, end: d.date }))].filter((d) => d.date >= today && d.date <= addDays(today, 14)).sort((a, b) => a.date.localeCompare(b.date));
   const bdayToday = famDates.filter((d) => d.birthday && d.date === today);
   const holidayToday = famDates.filter((d) => d.holiday && d.date === today);
   // Kevin's wording: nothing is "overdue"; past-due items are things to focus on.
@@ -358,7 +360,7 @@ Deno.serve(async (req) => {
   const top3 = [...open.filter((i) => !isFocus(i) && i.tag !== 'Deadline'), ...amyItems.filter((i) => i.date <= addDays(today, 7))]
     .sort((a, b) => (a.date < today ? 0 : 1) - (b.date < today ? 0 : 1) || a.rank - b.rank || a.date.localeCompare(b.date)).slice(0, 3);
   const pills = countdown.filter((c) => !(focusCol && c.cid === focusCol.id)).slice(0, 3);
-  const trip = trips[0], dates = famDates.filter((d) => !(d.holiday && d.date === today)).slice(0, 3);
+  const trip = trips[0], dates = famDates.filter((d) => !(d.holiday && d.date === today && !(d as any).kind?.match(/No school|Half day/))).slice(0, 4);
   const when2 = (i: Item) => i.date < today ? 'focus on' : i.date === today ? 'today' + (i.time ? ', ' + i.time : '') : nice(i.date);
 
   // ---------- email ----------
@@ -405,7 +407,7 @@ Deno.serve(async (req) => {
     <td style="width:76px;vertical-align:top;text-align:center"><div style="background:#fff;color:#3b1d6b;border-radius:14px;padding:6px 4px"><div style="font-size:30px;font-weight:900;line-height:1">${n <= 0 ? '🎉' : n}</div><div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.05em">${n <= 0 ? 'now' : n === 1 ? 'day' : 'days'}</div></div></td></tr></table></div>`; })() : ''}
   ${dates.length ? `<div style="margin:12px 0 0;background-color:#a3361f;background-image:linear-gradient(135deg,#7c2d12,#b4400b);color:#fff;border-radius:16px;padding:14px 16px"><div style="font-size:11.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;opacity:.95;margin-bottom:6px">🗓️ Coming up</div>
     ${dates.map((d) => { const n = daysBetween(today, d.date), vote = /election/i.test(d.title); return `<table role="presentation" style="border-collapse:collapse;width:100%;margin:4px 0"><tr><td style="width:58px;vertical-align:middle"><div style="background:#fff;color:#7c2d12;border-radius:12px;text-align:center;padding:4px 2px"><div style="font-size:11px;font-weight:800;text-transform:uppercase">${h(new Date(d.date + 'T12:00:00Z').toLocaleDateString('en-US', { month: 'short', timeZone: 'UTC' }))}</div><div style="font-size:22px;font-weight:900;line-height:1">${+d.date.slice(8)}</div></div></td>
-      <td style="padding-left:10px;vertical-align:middle"><div style="font-size:17px;font-weight:800">${d.birthday ? '🎂 ' : vote ? '🗳️ ' : (d as any).holiday ? '' : '📌 '}${h(d.title.replace('🎂 ', ''))}</div><div style="font-size:13.5px">${n === 0 ? 'Today!' : n === 1 ? 'Tomorrow' : 'In ' + n + ' days'}${vote ? ' · polls 7 AM to 8 PM' : ''}</div>
+      <td style="padding-left:10px;vertical-align:middle"><div style="font-size:17px;font-weight:800">${d.birthday ? '🎂 ' : vote ? '🗳️ ' : (d as any).kind === 'No school' ? '🏫 ' : (d as any).kind === 'Half day' ? '🕐 ' : (d as any).holiday ? ((/^\p{Extended_Pictographic}/u.test(d.title)) ? '' : '🎉 ') : '📌 '}${h(d.title.replace('🎂 ', ''))}</div><div style="font-size:13.5px">${n === 0 ? 'Today!' : n === 1 ? 'Tomorrow' : 'In ' + n + ' days'}${(d as any).end && (d as any).end !== (d as any).start ? ' · through ' + h(nice((d as any).end)) : ''}${vote ? ' · polls 7 AM to 8 PM' : ''}${d.note ? ' · ' + h(d.note) : ''}</div>
       ${vote ? `<a href="${HOME}voter/" style="display:inline-block;margin-top:5px;background:#ffe08a;color:#7c2d12;font-weight:800;font-size:13px;padding:5px 12px;border-radius:999px;text-decoration:none">Open the voter guide →</a>` : ''}</td></tr></table>`; }).join('')}</div>` : ''}
   ${topNews.length || upNews.length ? newsCard('📰', 'Headlines', '#0b5f73', '#1e5f99', [...topNews, ...upNews], 'https://news.google.com/') : ''}
   ${entNews.length ? newsCard('🎬', 'Entertainment', '#8a1f5c', '#a52a52', entNews, 'https://news.google.com/topics/CAAqJggKIiBDQkFTRWdvSUwyMHZNREpxYW5RU0FtVnVHZ0pWVXlnQVAB') : ''}
