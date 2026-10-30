@@ -152,8 +152,11 @@ const HOLIDAYS: [string, number, number][] = [['🎄 Christmas', 12, 25], ['🎆
 
 // Game day: our teams' games today and tomorrow, and yesterday's scores, from ESPN's public scoreboard (no key).
 // ESPN short names: "Michigan St" (not State), "Northern Michigan", "Michigan Tech". Division II football is group 35; college hockey has its own feed.
+// Kevin: only the games that matter. Rivalries always; Michigan and MSU football and basketball; every Lions game;
+// anything marked a playoff, bowl or tournament; Tech and NMU only when they meet. No regular-season NHL, NBA or MLB.
 const TEAMS = ['Michigan', 'Michigan St', 'Michigan State', 'Michigan Tech', 'Northern Michigan', 'Lions', 'Red Wings', 'Tigers', 'Pistons'];
-const RIVALS = [['Michigan', 'Michigan St'], ['Michigan', 'Michigan State'], ['Michigan', 'Ohio State'], ['Lions', 'Packers'], ['Michigan Tech', 'Northern Michigan']];
+const RIVALS = [['Michigan', 'Michigan St'], ['Michigan', 'Michigan State'], ['Michigan', 'Ohio State'], ['Michigan St', 'Ohio State'], ['Lions', 'Packers'], ['Lions', 'Bears'], ['Michigan Tech', 'Northern Michigan']];
+const BIG = /playoff|bowl|championship|final four|elite eight|sweet 16|world series|stanley cup|frozen four|rivalry|trophy/i;
 type Game = { when: string; label: string; detail: string; tv: string; rivalry: boolean; final: boolean; ours: boolean };
 async function games(dayISO: string): Promise<Game[]> {
   const d = dayISO.replace(/-/g, ''), out: Game[] = [];
@@ -167,10 +170,14 @@ async function games(dayISO: string): Promise<Game[]> {
         const ours = names.filter((n) => TEAMS.some((t) => n === t));
         if (!ours.length) continue;
         const rivalry = RIVALS.some(([a, b]) => names.includes(a) && names.includes(b));
+        const sportKey = /hockey/.test(String(r.url)) ? 'hockey' : /basketball/.test(String(r.url)) ? 'basketball' : /baseball/.test(String(r.url)) ? 'baseball' : 'football';
+        const college = /college/.test(String(r.url)), big = BIG.test(String(e.name || '') + ' ' + String(c.notes?.[0]?.headline || '') + ' ' + String(e.season?.type?.name || ''));
+        const bigTeam = ours.some((n) => ['Michigan', 'Michigan St', 'Michigan State'].includes(n)) && college && sportKey !== 'hockey' && sportKey !== 'baseball';
+        if (!(rivalry || big || bigTeam || names.includes('Lions'))) continue;
         const final = e.status?.type?.completed === true;
         const score = final ? c.competitors.map((x: any) => `${x.team.shortDisplayName} ${x.score}`).join(', ') : '';
         const t = new Date(e.date).toLocaleTimeString('en-US', { timeZone: TZ, hour: 'numeric', minute: '2-digit' }).replace(':00', '');
-        const sport = /hockey/.test(String(r.url)) ? '🏒 ' : /basketball/.test(String(r.url)) ? '🏀 ' : /baseball/.test(String(r.url)) ? '⚾ ' : '🏈 ';
+        const sport = sportKey === 'hockey' ? '🏒 ' : sportKey === 'basketball' ? '🏀 ' : sportKey === 'baseball' ? '⚾ ' : '🏈 ';
         out.push({ when: e.date, label: sport + names.join(' vs ').replace('Michigan St ', 'Michigan State ').replace(/Michigan St$/, 'Michigan State'), detail: final ? score.replace(/Michigan St /g, 'Michigan State ') : t, tv: c.broadcasts?.[0]?.names?.[0] || '', rivalry, final, ours: true });
       }
     } catch { /* skip this feed */ }
@@ -306,7 +313,7 @@ Deno.serve(async (req) => {
   const [fact, quiz, joke, comic, gToday, gTomorrow, gYesterday] = await Promise.all([want.has('fact') ? onThisDay(today) : null, trivia(today), want.has('joke') ? dadJoke() : '', want.has('comic') ? xkcd() : null, games(today), games(addDays(today, 1)), games(addDays(today, -1))]);
   // Game day shows whenever one of our teams plays today or tomorrow, or played yesterday. Rivalry games always lead.
   const gameLines = [...gYesterday.filter((g) => g.final).map((g) => ({ ...g, tag: 'Final' })), ...gToday.filter((g) => !g.final).map((g) => ({ ...g, tag: 'Today' })), ...gTomorrow.map((g) => ({ ...g, tag: 'Tomorrow' }))]
-    .sort((a, b) => (b.rivalry ? 1 : 0) - (a.rivalry ? 1 : 0)).slice(0, 4);
+    .sort((a, b) => (b.rivalry ? 1 : 0) - (a.rivalry ? 1 : 0)).slice(0, 3);
   const word = want.has('word') ? WORDS[seed % WORDS.length] : null;
   const question = want.has('question') ? QUESTIONS[seed % QUESTIONS.length] : '';
   const countdowns = want.has('countdown') ? [...HOLIDAYS.map(([t, m, d]) => ({ title: t, date: nextYearly(m, d) })), ...dbDates.filter((d) => d.birthday).map((d) => ({ title: d.title, date: d.date }))]
