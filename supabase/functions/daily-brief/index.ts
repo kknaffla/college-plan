@@ -1,7 +1,7 @@
 // daily-brief: the Knaffla Brief (formerly Lily's daily brief). Lily's college plan leads (unchanged), then Amy's plan,
 // trips coming up and family dates. One shared email to the whole family, so it never includes money.
 // Called by pg_cron (migration 012) with the x-brief-key header from public.daily_brief.
-// Sends only at send_hour America/Detroit, once per day, when enabled. POST ?test=1 sends now to test_recipient only.
+// Sends only at send_hour America/Detroit, once per day, when enabled. POST ?test=1 sends now to test_recipient only; ?now=1 sends the full brief to all recipients now (add &intro=1 for the one-time "New and improved" banner).
 // POST ?note=1 with {subject, text, html} sends a one-off message to the recipients.
 // Secrets (Supabase › Edge Functions › Secrets): GMAIL_USER, GMAIL_APP_PASSWORD (a Google app password, never a real password).
 // Verify JWT stays ON: the cron call sends the public anon key.
@@ -219,8 +219,11 @@ Deno.serve(async (req) => {
     return reply(`Note sent to ${list.length}: ${b.subject}`);
   }
   const test = new URL(req.url).searchParams.get('test') === '1';
+  // ?now=1 sends the full brief to every recipient right away (still needs the brief key); ?intro=1 adds the one-time "New and improved" banner.
+  const now = new URL(req.url).searchParams.get('now') === '1';
+  const intro = new URL(req.url).searchParams.get('intro') === '1';
   const today = ymd(new Date());
-  if (!test) {
+  if (!test && !now) {
     if (!cfg.enabled) return reply('Brief is turned off.');
     if (hourNow() !== cfg.send_hour) return reply('Not send time yet.');
     if (cfg.last_sent_on === today) return reply('Already sent today.');
@@ -381,6 +384,9 @@ Deno.serve(async (req) => {
   const html = `<meta name="color-scheme" content="light"><meta name="supported-color-schemes" content="light"><div style="background:#f6f7f9;padding:10px 0"><div style="${F};max-width:540px;margin:0 auto;background:#ffffff;border-radius:18px;padding:14px;color:#1f2a23;font-size:15px;line-height:1.4">
   <div style="background-color:#3b2a7a;background-image:linear-gradient(135deg,#1d3f8f,#5b2a86 50%,#a3185d);color:#fff;border-radius:14px;padding:12px 16px;margin:0 0 10px">
     <div style="font-size:20px;font-weight:800">☀️ Knaffla Brief</div><div style="font-size:13px;opacity:1">${h(wd)}, ${h(shortDate.slice(5))} · <a href="${HOME}" style="color:#ffe08a;font-weight:700;text-decoration:none">Family page →</a></div></div>
+  ${intro ? `<div style="background-color:#5b21b6;background-image:linear-gradient(135deg,#1e5f99,#5b21b6 50%,#a3185d);color:#fff;border-radius:14px;padding:12px 16px;margin:0 0 10px;text-align:center"><div style="font-size:20px;font-weight:800">✨ New &amp; improved Knaffla Brief ✨</div>
+    <div style="margin-top:8px">${['🌤️ 3 weather spots', '🎯 Lily\'s focus', '🏟️ Big games', '🧠 Daily quiz', '🎶 Your music', '🗓️ What\'s coming'].map((c) => `<span style="display:inline-block;background:rgba(255,255,255,.2);border-radius:999px;padding:3px 10px;margin:0 4px 5px 0;font-size:13px;font-weight:700">${c}</span>`).join('')}</div>
+    <div style="font-size:13px;margin-top:2px">Every morning at 7. Pick your music at <a href="${HOME}music/" style="color:#ffe08a;font-weight:800">kknaffla.github.io/music</a>.</div></div>` : ''}
   ${holidayToday.map((d) => `<div style="background-color:#7c2d12;background-image:linear-gradient(135deg,#3b1d6b,#b4400b);color:#fff;border-radius:14px;padding:12px 16px;margin:0 0 10px;font-size:22px;font-weight:800;text-align:center">${h(d.title.split(' ')[0])} Happy ${h(d.title.replace(/^\S+\s/, ''))}! ${h(d.title.split(' ')[0])}</div>`).join('')}
   ${bdayToday.map((b) => `<div style="background-color:#d6336c;background-image:linear-gradient(135deg,#c2255c,#b4400b 55%,#b4400b);color:#fff;border-radius:14px;padding:12px 16px;margin:0 0 10px;font-size:20px;font-weight:800;text-align:center">🎈🎂 Happy birthday, ${h(b.who)}! 🎉🎁</div>`).join('')}
   ${wxHome || wxLake || wxSecond ? `<table role="presentation" style="width:100%;border-collapse:collapse;margin:0 -3px"><tr>${wxCard(wxHome, '#0b5f73', '#1e5f99')}${wxCard(wxLake, '#1d6b45', '#2e6b30')}${wxCard(wxSecond, '#b4400b', '#b4400b')}</tr></table>
@@ -425,6 +431,7 @@ Deno.serve(async (req) => {
 
   const text = [`KNAFFLA BRIEF, ${wd}, ${shortDate.slice(5)}  ${HOME}`,
     ...bdayToday.map((b) => `HAPPY BIRTHDAY, ${b.who.toUpperCase()}!`),
+    intro ? 'NEW & IMPROVED KNAFFLA BRIEF: 3 weather spots, Lily\'s focus, big games, a daily quiz, your music and what\'s coming. Every morning at 7. Pick your music at ' + HOME + 'music/' : '',
     ...holidayToday.map((d) => `HAPPY ${d.title.replace(/^\S+\s/, '').toUpperCase()}!`),
     wxHome ? `\nWEATHER: Manistique ${wxHome.now}° ${(WMO[wxHome.code] || ['', ''])[1]}, ${wxHome.hi}°/${wxHome.lo}°. Wear: ${wear(wxHome)}` : '',
     wxLake ? `Crooked Lake ${wxLake.now}° ${(WMO[wxLake.code] || ['', ''])[1]}, ${wxLake.hi}°/${wxLake.lo}°` : '',
@@ -448,7 +455,7 @@ Deno.serve(async (req) => {
     `\nMOON: ${moonName}`,
     fact ? `\nON THIS DAY, ${fact.year}: ${fact.text} ${fact.link}` : '',
     '\n' + signoff].filter((x) => x !== '').join('\n');
-  const subject = `☀️ Knaffla Brief, ${nice(today)}: ${holidayToday.length ? 'Happy ' + holidayToday[0].title.replace(/^\S+\s/, '') + '! ' + holidayToday[0].title.split(' ')[0] + ' · ' : ''}${bdayToday.length ? '🎂 Happy birthday, ' + bdayToday.map((b) => b.who).join(' and ') + '! · ' : ''}${focusCol && focusDays !== null && focusDays <= 7 ? `${focusName} ${focusDays <= 0 ? 'due today' : 'in ' + focusDays + ' days'} · ` : ''}${wxHome ? `${(WMO[wxHome.code] || ['🌡️'])[0]} ${wxHome.hi}°` : ''}`.slice(0, 120);
+  const subject = `☀️ Knaffla Brief, ${nice(today)}: ${intro ? '✨ New & improved! · ' : ''}${holidayToday.length ? 'Happy ' + holidayToday[0].title.replace(/^\S+\s/, '') + '! ' + holidayToday[0].title.split(' ')[0] + ' · ' : ''}${bdayToday.length ? '🎂 Happy birthday, ' + bdayToday.map((b) => b.who).join(' and ') + '! · ' : ''}${focusCol && focusDays !== null && focusDays <= 7 ? `${focusName} ${focusDays <= 0 ? 'due today' : 'in ' + focusDays + ' days'} · ` : ''}${wxHome ? `${(WMO[wxHome.code] || ['🌡️'])[0]} ${wxHome.hi}°` : ''}`.slice(0, 120);
 
   const user = Deno.env.get('GMAIL_USER'), pass = Deno.env.get('GMAIL_APP_PASSWORD');
   if (!user || !pass) return reply('Email secrets are not set yet.', 500);
