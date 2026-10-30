@@ -196,7 +196,7 @@ async function games(dayISO: string): Promise<Game[]> {
 }
 
 // Song previews: Apple's 30-second clip from the iTunes Search API. A direct audio file, so a tap just plays it.
-type Preview = { url: string; track: string; artist: string };
+type Preview = { url: string; track: string; artist: string; full: string };
 async function preview(term: string, artistHint = '', pickIndex = 0): Promise<Preview | null> {
   const r = await get(`https://itunes.apple.com/search?term=${encodeURIComponent(term)}&entity=song&limit=25&country=US`);
   if (!r) return null;
@@ -204,9 +204,10 @@ async function preview(term: string, artistHint = '', pickIndex = 0): Promise<Pr
     let hits = (j.results || []).filter((x: any) => x.previewUrl && /^https:\/\//.test(x.previewUrl));
     if (artistHint) { const a = artistHint.toLowerCase(); const m = hits.filter((x: any) => String(x.artistName || '').toLowerCase().includes(a)); if (m.length) hits = m; }
     const seen = new Set<string>(); hits = hits.filter((x: any) => { const k = String(x.trackName).toLowerCase().replace(/\s*\(.*\)$/, ''); if (seen.has(k)) return false; seen.add(k); return true; });
-    const x = hits[pickIndex % Math.max(hits.length, 1)]; return x ? { url: x.previewUrl, track: x.trackName, artist: x.artistName } : null;
+    const x = hits[pickIndex % Math.max(hits.length, 1)]; return x ? { url: x.previewUrl, track: x.trackName, artist: x.artistName, full: /^https:\/\/music\.apple\.com\//.test(String(x.trackViewUrl || '')) ? String(x.trackViewUrl).split('?')[0] + '?i=' + x.trackId : '' } : null;
   } catch { return null; }
 }
+const fullLink = (p: Preview | null, color: string) => p && p.full ? ` <a href="${p.full.replace(/"/g, '&quot;')}" style="display:inline-block;margin:0 8px 6px 0;color:${color};font-weight:800;font-size:13.5px;text-decoration:underline;text-underline-offset:3px">Full song in Apple Music</a>` : '';
 const directAudio = (u: unknown) => typeof u === 'string' && /^https:\/\//.test(u) && !/youtube\.com|youtu\.be/i.test(u);
 
 type Item = { date: string; time?: string | null; title: string; who?: string; tag: string; rank: number; link: string; senior?: boolean; event?: boolean; cid?: string };
@@ -388,7 +389,12 @@ Deno.serve(async (req) => {
   const SEASONS: [string, string, string, string][] = [['10-20', '10-31', '🎃', 'Spooky season'], ['11-20', '11-30', '🦃', 'Grateful week'], ['12-01', '12-24', '🎄', 'Countdown to Christmas'], ['12-26', '12-31', '🎆', 'Last days of the year'],
     ['01-01', '02-28', '❄️', 'U.P. winter'], ['03-01', '03-31', '🏀', 'March Madness'], ['04-01', '05-20', '🌷', 'Spring in the U.P.'], ['05-21', '06-15', '🎓', 'Graduation season'], ['06-16', '08-31', '☀️', 'Lake life'], ['09-01', '10-19', '🍁', 'Fall colors']];
   const md = today.slice(5), season = SEASONS.find(([a, b]) => md >= a && md <= b) || SEASONS[0];
-  const theme: any = themeRows[0] || { theme_name: season[3], emoji: season[2], items: [], color1: null, color2: null, tagline: '', signoff: '', builtin: true };
+  const tripToday = trips.find((t) => t.start_date === today);
+  const bigDay = holidayToday[0] ? holidayToday[0].title : tripToday ? '🧳 ' + tripToday.name + ' trip day' : bdayToday[0] ? '🎂 ' + bdayToday[0].who + "'s birthday" : FAMILY_DATES.find((d) => d.date === today) ? '🗳️ ' + FAMILY_DATES.find((d) => d.date === today)!.title : '';
+  const dayTheme = themeRows.find((t) => t.start_date === t.end_date);
+  const weekTheme = themeRows.find((t) => t.start_date !== t.end_date);
+  const theme: any = dayTheme || (bigDay ? { theme_name: bigDay.replace(/^\S+\s/, ''), emoji: bigDay.split(' ')[0], items: [], tagline: '', signoff: '', builtin: true } : weekTheme)
+    || { theme_name: season[3], emoji: season[2], items: [], color1: null, color2: null, tagline: '', signoff: '', builtin: true };
   const themeItems: any[] = Array.isArray(theme.items) ? theme.items : [];
   const themeItem = themeItems.find((i) => i.date === today) || (themeItems.length ? themeItems[daysBetween(theme.start_date || today, today) % themeItems.length] : null);
   // White text needs dark colors; a theme color that's too light falls back to the brief's purple.
@@ -436,7 +442,7 @@ Deno.serve(async (req) => {
   ${themeItem || !theme.builtin ? `<div style="margin:16px 0 0;background:#f8f7ff;border:2px solid ${tc1};border-left:8px solid ${tc1};color:#1f1147;border-radius:16px;padding:14px 16px"><table role="presentation" style="border-collapse:collapse"><tr><td style="font-size:44px;line-height:1;padding-right:12px;vertical-align:top">${h(theme.emoji || '🎨')}</td><td>
     <div style="font-size:12px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;color:${tc1}">Theme of the ${theme.start_date === theme.end_date ? 'day' : 'week'} · ${h(theme.theme_name)}</div>
     ${themeItem ? `<div style="font-size:19px;font-weight:900;line-height:1.3;margin:4px 0 2px;color:#111827">${themeItem.kind === 'quote' ? '“' + h(themeItem.text) + '”' : h(themeItem.text)}</div>${themeItem.by ? `<div style="font-size:14px;font-weight:700;color:#374151">— ${h(themeItem.by)}</div>` : ''}` : theme.tagline ? `<div style="font-size:17px;font-weight:800;margin-top:4px;color:#111827">${h(theme.tagline)}</div>` : ''}
-    <div style="margin-top:9px">${themeSong ? `<a href="${h(themeSong.url)}" style="display:inline-block;margin:0 8px 6px 0;background:${tc1};color:#ffffff;font-weight:900;font-size:15px;padding:9px 16px;border-radius:999px;text-decoration:none">▶️ Play: ${h(themeSong.track)}</a>` : themeItem && directAudio(themeItem.audio) ? `<a href="${h(themeItem.audio)}" style="display:inline-block;margin:0 8px 6px 0;background:${tc1};color:#ffffff;font-weight:900;font-size:15px;padding:9px 16px;border-radius:999px;text-decoration:none">▶️ ${h(themeItem.audio_label || 'Play it')}</a>` : songOfDay ? `<a href="${h(songOfDay.url)}" style="display:inline-block;margin:0 8px 6px 0;background:${tc1};color:#ffffff;font-weight:900;font-size:15px;padding:9px 16px;border-radius:999px;text-decoration:none">🎵 ${h(songOfDay.track)} · ${h(songOfDay.artist)}</a>` : ''}${themeItem && themeItem.link && /^https:\/\//.test(themeItem.link) ? `<a href="${h(themeItem.link)}" style="display:inline-block;margin:0 8px 6px 0;background:#ffe08a;color:#1f1147;border:2px solid #1f1147;font-weight:800;font-size:14px;padding:6px 14px;border-radius:999px;text-decoration:none">${h(themeItem.link_label || 'See more')} →</a>` : ''}</div></td></tr></table></div>` : `<div style="margin:16px 0 0;background:#f3e8ff;border-radius:14px;padding:10px 14px;color:#3b1d6b"><span style="font-size:15px;font-weight:800">${h(theme.emoji)} ${h(theme.theme_name)}</span> ${songOfDay ? `<a href="${h(songOfDay.url)}" style="display:inline-block;margin-left:6px;background:#5b21b6;color:#fff;font-weight:800;font-size:14px;padding:6px 14px;border-radius:999px;text-decoration:none">🎵 Play: ${h(songOfDay.track)} · ${h(songOfDay.artist)}</a>` : ''}</div>`}
+    <div style="margin-top:9px">${themeSong ? `<a href="${h(themeSong.url)}" style="display:inline-block;margin:0 8px 6px 0;background:${tc1};color:#ffffff;font-weight:900;font-size:15px;padding:9px 16px;border-radius:999px;text-decoration:none">▶️ Play: ${h(themeSong.track)}</a>${fullLink(themeSong, tc1)}` : themeItem && directAudio(themeItem.audio) ? `<a href="${h(themeItem.audio)}" style="display:inline-block;margin:0 8px 6px 0;background:${tc1};color:#ffffff;font-weight:900;font-size:15px;padding:9px 16px;border-radius:999px;text-decoration:none">▶️ ${h(themeItem.audio_label || 'Play it')}</a>` : songOfDay ? `<a href="${h(songOfDay.url)}" style="display:inline-block;margin:0 8px 6px 0;background:${tc1};color:#ffffff;font-weight:900;font-size:15px;padding:9px 16px;border-radius:999px;text-decoration:none">🎵 ${h(songOfDay.track)} · ${h(songOfDay.artist)}</a>${fullLink(songOfDay, tc1)}` : ''}${themeItem && themeItem.link && /^https:\/\//.test(themeItem.link) ? `<a href="${h(themeItem.link)}" style="display:inline-block;margin:0 8px 6px 0;background:#ffe08a;color:#1f1147;border:2px solid #1f1147;font-weight:800;font-size:14px;padding:6px 14px;border-radius:999px;text-decoration:none">${h(themeItem.link_label || 'See more')} →</a>` : ''}</div></td></tr></table></div>` : `<div style="margin:16px 0 0;background:#f3e8ff;border-radius:14px;padding:10px 14px;color:#3b1d6b"><span style="font-size:15px;font-weight:800">${h(theme.emoji)} ${h(theme.theme_name)}</span> ${songOfDay ? `<a href="${h(songOfDay.url)}" style="display:inline-block;margin-left:6px;background:#5b21b6;color:#fff;font-weight:800;font-size:14px;padding:6px 14px;border-radius:999px;text-decoration:none">🎵 Play: ${h(songOfDay.track)} · ${h(songOfDay.artist)}</a>${fullLink(songOfDay, '#3b1d6b')}` : ''}</div>`}
   ${trip ? (() => { const x = tripInfo(trip), n = daysBetween(today, trip.start_date); return `<div style="margin:16px 0 0;background-color:#5b2a86;background-image:linear-gradient(135deg,#3b1d6b,#9c2559);color:#fff;border-radius:16px;padding:14px 16px"><table role="presentation" style="border-collapse:collapse;width:100%"><tr>
     <td style="vertical-align:top"><div style="font-size:11.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;opacity:.95">🧳 Next trip</div>
       <a href="${TRIPS}#/trip/${h(trip.id)}" style="display:block;color:#fff;text-decoration:none;font-size:22px;font-weight:800;line-height:1.15;margin:2px 0 4px">${h(trip.name)}</a>
@@ -497,7 +503,7 @@ Deno.serve(async (req) => {
     question ? `\nDINNER TABLE QUESTION: ${question}` : '',
     countdowns.length ? '\nCOUNTDOWNS: ' + countdowns.map((c) => `${c.title} ${c.n}d`).join(', ') : '',
     comic ? `\nCOMIC OF THE DAY (${comic.strip}): ${comic.title} ${comic.link}` : '',
-    songOfDay ? `\nSONG OF THE DAY: ${songOfDay.track} by ${songOfDay.artist} (30-second preview) ${songOfDay.url}` : '',
+    songOfDay ? `\nSONG OF THE DAY: ${songOfDay.track} by ${songOfDay.artist} (30-second preview) ${songOfDay.url}${songOfDay.full ? ' · Full song: ' + songOfDay.full : ''}` : '',
     `\nTHEME: ${theme.theme_name}${themeItem ? ' · ' + (themeItem.kind === 'quote' ? '"' + themeItem.text + '"' : themeItem.text) + (themeItem.by ? ' (' + themeItem.by + ')' : '') + (themeSong ? ' Play: ' + themeSong.track + ' ' + themeSong.url : directAudio(themeItem.audio) ? ' Play: ' + themeItem.audio : '') + (themeItem.link ? ' ' + themeItem.link : '') : ''}`,
     `\nMOON: ${moonName}`,
     fact ? `\nON THIS DAY, ${fact.year}: ${fact.text} ${fact.link}` : '',
