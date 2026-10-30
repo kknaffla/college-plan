@@ -244,11 +244,12 @@ Deno.serve(async (req) => {
     sb.from('trips').select('id,name,destination,start_date,end_date,status,trip_items(title,kind,done)').not('start_date', 'is', null).gte('end_date', today).lte('start_date', addDays(today, 30)).order('start_date'),
     sb.from('family_dates').select('title,kind,month,day,on_date,end_date,note'),
   ]);
-  const [setRes, artRes, folRes, memRes] = await Promise.all([
+  const [setRes, artRes, folRes, memRes, themeRes] = await Promise.all([
     sb.from('brief_settings').select('lily_focus,places,stars').eq('id', 1).maybeSingle(),
     sb.from('music_artists').select('id,name'),
     sb.from('music_follows').select('artist_id,user_id'),
     sb.from('members').select('user_id,display_name'),
+    sb.from('brief_themes').select('theme_name,tagline,emoji,color1,color2,signoff,items,start_date,end_date').lte('start_date', today).gte('end_date', today),
   ]);
   const settings: any = setRes.data || {};
 
@@ -367,7 +368,18 @@ Deno.serve(async (req) => {
   const wd = new Date(today + 'T12:00:00Z').toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' });
   const shortDate = new Date(today + 'T12:00:00Z').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' });
   const SIGNOFFS = [`Have a great ${wd}, Knafflas! 🌲`, `Go get ${wd}! 💪`, `You've got this, team! 🙌`, `Make it a good one! ☀️`, `Lake Michigan says hi! 🌊`, `Onward, Knafflas! 🚀`, `Happy ${wd}! 🎉`];
-  const signoff = bdayToday.length ? 'Cake tonight? 🍰' : SIGNOFFS[daysBetween('2026-01-01', today) % SIGNOFFS.length];
+  // Theme of the day: a one-day theme beats a weekly one; with none set, a built-in seasonal theme.
+  const themeRows = ((themeRes.data || []) as any[]).sort((a, b) => (a.start_date === a.end_date ? 0 : 1) - (b.start_date === b.end_date ? 0 : 1));
+  const SEASONS: [string, string, string, string][] = [['10-20', '10-31', '🎃', 'Spooky season'], ['11-20', '11-30', '🦃', 'Grateful week'], ['12-01', '12-24', '🎄', 'Countdown to Christmas'], ['12-26', '12-31', '🎆', 'Last days of the year'],
+    ['01-01', '02-28', '❄️', 'U.P. winter'], ['03-01', '03-31', '🏀', 'March Madness'], ['04-01', '05-20', '🌷', 'Spring in the U.P.'], ['05-21', '06-15', '🎓', 'Graduation season'], ['06-16', '08-31', '☀️', 'Lake life'], ['09-01', '10-19', '🍁', 'Fall colors']];
+  const md = today.slice(5), season = SEASONS.find(([a, b]) => md >= a && md <= b) || SEASONS[0];
+  const theme: any = themeRows[0] || { theme_name: season[3], emoji: season[2], items: [], color1: null, color2: null, tagline: '', signoff: '', builtin: true };
+  const themeItems: any[] = Array.isArray(theme.items) ? theme.items : [];
+  const themeItem = themeItems.find((i) => i.date === today) || (themeItems.length ? themeItems[daysBetween(theme.start_date || today, today) % themeItems.length] : null);
+  // White text needs dark colors; a theme color that's too light falls back to the brief's purple.
+  const dark = (hex: string | null) => { if (!hex || !/^#[0-9a-f]{6}$/i.test(hex)) return false; const c = [1, 3, 5].map((i) => { const v = parseInt(hex.slice(i, i + 2), 16) / 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 1.05 / (0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2] + 0.05) >= 4.5; };
+  const tc1 = dark(theme.color1) ? theme.color1 : '#3b1d6b', tc2 = dark(theme.color2) ? theme.color2 : '#5b21b6';
+  const signoff = theme.signoff ? theme.signoff : bdayToday.length ? 'Cake tonight? 🍰' : SIGNOFFS[daysBetween('2026-01-01', today) % SIGNOFFS.length];
   const F = 'font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif';
   const sec = (emoji: string, t: string, c: string, link?: string) => `<div style="margin:18px 0 6px;font-size:16px;font-weight:800;color:${c}">${emoji} ${link ? `<a href="${h(link)}" style="color:${c};text-decoration:none">${h(t)}</a>` : h(t)}</div>`;
   // News cards: short. Each story is one trimmed line linking to the article, plus a "More" button. Reads on light and dark backgrounds.
@@ -399,6 +411,10 @@ Deno.serve(async (req) => {
     ${focusItems.map((i) => `<div style="margin:0 0 4px">✅ <a href="${h(i.link)}" style="color:#fff;font-weight:600;text-decoration:none">${h(i.title.replace(' (' + focusName + ')', ''))}</a> <span style="color:#ffcb05;font-size:13px">${h(when2(i))}</span></div>`).join('') || '<div style="font-size:14px">Nothing else open for it. Nice work!</div>'}
     <div style="margin-top:6px;font-size:13px"><a href="${APP}#/college/${h(focusCol.id)}" style="color:#ffcb05;font-weight:700">Open ${h(focusName)} →</a></div></div>` : ''}
   ${top3.length || pills.length ? sec('⭐', 'Top 3 today', '#b4400b') : ''}${pills.length ? `<div style="margin:0 0 6px">${pills.map((c) => { const n = daysBetween(today, c.date); return `<span style="display:inline-block;background:${n <= 3 ? '#c2255c' : '#1d3f8f'};color:#fff;border-radius:999px;padding:2px 10px;margin:0 4px 4px 0;font-size:12.5px;font-weight:700">${h(c.title.replace(' application due', ''))} · ${n <= 0 ? 'today!' : n === 1 ? '1 day' : n + ' days'}</span>`; }).join('')}</div>` : ''}${top3.map((i) => li(ico(i), i.title, i.link, (i.who && i.who !== 'Lily' ? i.who + ' · ' : '') + when2(i), i.date < today ? '#b4400b' : '#6b7280')).join('')}
+  ${themeItem || !theme.builtin ? `<div style="margin:16px 0 0;background-color:${tc1};background-image:linear-gradient(135deg,${tc1},${tc2});color:#fff;border-radius:16px;padding:14px 16px"><table role="presentation" style="border-collapse:collapse"><tr><td style="font-size:44px;line-height:1;padding-right:12px;vertical-align:top">${h(theme.emoji || '🎨')}</td><td>
+    <div style="font-size:11.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;opacity:.95">Theme of the ${theme.start_date === theme.end_date ? 'day' : 'week'} · ${h(theme.theme_name)}</div>
+    ${themeItem ? `<div style="font-size:18px;font-weight:800;line-height:1.3;margin:4px 0 2px">${themeItem.kind === 'quote' ? '“' + h(themeItem.text) + '”' : h(themeItem.text)}</div>${themeItem.by ? `<div style="font-size:13.5px;font-weight:600">— ${h(themeItem.by)}</div>` : ''}` : theme.tagline ? `<div style="font-size:17px;font-weight:800;margin-top:4px">${h(theme.tagline)}</div>` : ''}
+    ${themeItem && themeItem.link && /^https:\/\//.test(themeItem.link) ? `<a href="${h(themeItem.link)}" style="display:inline-block;margin-top:9px;background:#ffe08a;color:#1f1147;font-weight:800;font-size:14px;padding:7px 14px;border-radius:999px;text-decoration:none">${h(themeItem.link_label || 'See more')} →</a>` : ''}</td></tr></table></div>` : `<div style="margin:16px 0 0;font-size:14px;font-weight:700;color:#3b1d6b">${h(theme.emoji)} ${h(theme.theme_name)}</div>`}
   ${trip ? (() => { const x = tripInfo(trip), n = daysBetween(today, trip.start_date); return `<div style="margin:16px 0 0;background-color:#5b2a86;background-image:linear-gradient(135deg,#3b1d6b,#9c2559);color:#fff;border-radius:16px;padding:14px 16px"><table role="presentation" style="border-collapse:collapse;width:100%"><tr>
     <td style="vertical-align:top"><div style="font-size:11.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;opacity:.95">🧳 Next trip</div>
       <a href="${TRIPS}#/trip/${h(trip.id)}" style="display:block;color:#fff;text-decoration:none;font-size:22px;font-weight:800;line-height:1.15;margin:2px 0 4px">${h(trip.name)}</a>
@@ -407,7 +423,7 @@ Deno.serve(async (req) => {
     <td style="width:76px;vertical-align:top;text-align:center"><div style="background:#fff;color:#3b1d6b;border-radius:14px;padding:6px 4px"><div style="font-size:30px;font-weight:900;line-height:1">${n <= 0 ? '🎉' : n}</div><div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.05em">${n <= 0 ? 'now' : n === 1 ? 'day' : 'days'}</div></div></td></tr></table></div>`; })() : ''}
   ${dates.length ? `<div style="margin:12px 0 0;background-color:#a3361f;background-image:linear-gradient(135deg,#7c2d12,#b4400b);color:#fff;border-radius:16px;padding:14px 16px"><div style="font-size:11.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;opacity:.95;margin-bottom:6px">🗓️ Coming up</div>
     ${dates.map((d) => { const n = daysBetween(today, d.date), vote = /election/i.test(d.title); return `<table role="presentation" style="border-collapse:collapse;width:100%;margin:4px 0"><tr><td style="width:58px;vertical-align:middle"><div style="background:#fff;color:#7c2d12;border-radius:12px;text-align:center;padding:4px 2px"><div style="font-size:11px;font-weight:800;text-transform:uppercase">${h(new Date(d.date + 'T12:00:00Z').toLocaleDateString('en-US', { month: 'short', timeZone: 'UTC' }))}</div><div style="font-size:22px;font-weight:900;line-height:1">${+d.date.slice(8)}</div></div></td>
-      <td style="padding-left:10px;vertical-align:middle"><div style="font-size:17px;font-weight:800">${d.birthday ? '🎂 ' : vote ? '🗳️ ' : (d as any).kind === 'No school' ? '🏫 ' : (d as any).kind === 'Half day' ? '🕐 ' : (d as any).holiday ? ((/^\p{Extended_Pictographic}/u.test(d.title)) ? '' : '🎉 ') : '📌 '}${h(d.title.replace('🎂 ', ''))}</div><div style="font-size:13.5px">${n === 0 ? 'Today!' : n === 1 ? 'Tomorrow' : 'In ' + n + ' days'}${(d as any).end && (d as any).end !== (d as any).start ? ' · through ' + h(nice((d as any).end)) : ''}${vote ? ' · polls 7 AM to 8 PM' : ''}${d.note ? ' · ' + h(d.note) : ''}</div>
+      <td style="padding-left:10px;vertical-align:middle"><div style="font-size:17px;font-weight:800">${d.birthday ? '🎂 ' : vote ? '🗳️ ' : (d as any).kind === 'No school' ? '🏫 ' : (d as any).kind === 'Half day' ? '🕐 ' : (d as any).holiday ? ((/^\p{Extended_Pictographic}/u.test(d.title)) ? '' : '🎉 ') : '📌 '}${h(d.title.replace('🎂 ', ''))}</div><div style="font-size:13.5px">${n === 0 ? 'Today!' : n === 1 ? 'Tomorrow' : 'In ' + n + ' days'}${(d as any).end && (d as any).end !== (d as any).start ? ' · through ' + h(nice((d as any).end)) : ''}${vote ? ' · polls 7 AM to 8 PM' : d.note ? ' · ' + h(d.note) : ''}</div>
       ${vote ? `<a href="${HOME}voter/" style="display:inline-block;margin-top:5px;background:#ffe08a;color:#7c2d12;font-weight:800;font-size:13px;padding:5px 12px;border-radius:999px;text-decoration:none">Open the voter guide →</a>` : ''}</td></tr></table>`; }).join('')}</div>` : ''}
   ${topNews.length || upNews.length ? newsCard('📰', 'Headlines', '#0b5f73', '#1e5f99', [...topNews, ...upNews], 'https://news.google.com/') : ''}
   ${entNews.length ? newsCard('🎬', 'Entertainment', '#8a1f5c', '#a52a52', entNews, 'https://news.google.com/topics/CAAqJggKIiBDQkFTRWdvSUwyMHZNREpxYW5RU0FtVnVHZ0pWVXlnQVAB') : ''}
@@ -459,6 +475,7 @@ Deno.serve(async (req) => {
     question ? `\nDINNER TABLE QUESTION: ${question}` : '',
     countdowns.length ? '\nCOUNTDOWNS: ' + countdowns.map((c) => `${c.title} ${c.n}d`).join(', ') : '',
     comic ? `\nCOMIC OF THE DAY (${comic.strip}): ${comic.title} ${comic.link}` : '',
+    `\nTHEME: ${theme.theme_name}${themeItem ? ' · ' + (themeItem.kind === 'quote' ? '"' + themeItem.text + '"' : themeItem.text) + (themeItem.by ? ' (' + themeItem.by + ')' : '') + (themeItem.link ? ' ' + themeItem.link : '') : ''}`,
     `\nMOON: ${moonName}`,
     fact ? `\nON THIS DAY, ${fact.year}: ${fact.text} ${fact.link}` : '',
     '\n' + signoff].filter((x) => x !== '').join('\n');
