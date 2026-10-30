@@ -209,8 +209,9 @@ Deno.serve(async (req) => {
   const followedIds = new Set(((folRes.data || []) as any[]).map((f) => f.artist_id));
   const followers = (id: string) => ((folRes.data || []) as any[]).filter((f) => f.artist_id === id).map((f) => (((memRes.data || []) as any[]).find((m) => m.user_id === f.user_id)?.display_name || '').split(' ')[0]).filter(Boolean);
   const artists = ((artRes.data || []) as any[]).filter((a) => followedIds.has(a.id)).slice(0, 12);
-  const [wxHome, wxSecond, topNews, upNews, entNews, ...musicRaw] = await Promise.all([
-    weather('Manistique', 45.9575, -86.2463), weather(second.name, second.lat, second.lon),
+  // Crooked Lake (the cottage, about 25 miles north off M-94) uses the Germfask forecast.
+  const [wxHome, wxLake, wxSecond, topNews, upNews, entNews, ...musicRaw] = await Promise.all([
+    weather('Manistique', 45.9575, -86.2463), weather('Crooked Lake', 46.2494, -85.926), weather(second.name, second.lat, second.lon),
     rss('https://news.google.com/rss?hl=en-US&gl=US&ceid=US:en', 3), rss(GN('Upper Peninsula Michigan when:2d'), 1),
     rss('https://news.google.com/rss/headlines/section/topic/ENTERTAINMENT?hl=en-US&gl=US&ceid=US:en', 2),
     ...artists.map(async (a) => ({ a, news: (await rss(GN(`"${a.name}" when:7d`), 1))[0] || null, rel: await newRelease(a.name, addDays(today, -30)) })),
@@ -244,18 +245,18 @@ Deno.serve(async (req) => {
   const F = 'font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif';
   const sec = (emoji: string, t: string, c: string, link?: string) => `<div style="margin:18px 0 6px;font-size:16px;font-weight:800;color:${c}">${emoji} ${link ? `<a href="${h(link)}" style="color:${c};text-decoration:none">${h(t)}</a>` : h(t)}</div>`;
   const li = (ico: string, title: string, link: string, meta: string, metaColor = '#6b7280') => `<div style="margin:0 0 5px">${ico} <a href="${h(link)}" style="color:#1f2a23;text-decoration:none;font-weight:600">${h(title)}</a> <span style="color:${metaColor};font-size:13px">${h(meta)}</span></div>`;
-  const wxCard = (w: Wx | null, c1: string, c2: string) => w ? `<td style="width:50%;padding:4px;vertical-align:top"><div style="background-color:${c1};background-image:linear-gradient(135deg,${c1},${c2});color:#fff;border-radius:12px;padding:10px 12px">
-      <div style="font-size:13px;font-weight:700;opacity:.92">${h(w.name)}</div>
-      <div style="font-size:26px;font-weight:800;line-height:1.1">${(WMO[w.code] || ['🌡️'])[0]} ${w.now}°</div>
-      <div style="font-size:12.5px">${h((WMO[w.code] || ['', ''])[1])} · ${w.hi}°/${w.lo}°${w.rain >= 30 ? ` · ${w.rain}% rain` : ''}</div></div></td>` : '';
+  const wxCard = (w: Wx | null, c1: string, c2: string) => w ? `<td style="width:33%;padding:3px;vertical-align:top"><div style="background-color:${c1};background-image:linear-gradient(135deg,${c1},${c2});color:#fff;border-radius:12px;padding:9px 10px;min-height:74px">
+      <div style="font-size:12px;font-weight:700;opacity:.92;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${h(w.name)}</div>
+      <div style="font-size:24px;font-weight:800;line-height:1.1">${(WMO[w.code] || ['🌡️'])[0]} ${w.now}°</div>
+      <div style="font-size:12px">${w.hi}°/${w.lo}°${w.rain >= 30 ? ` · ${w.rain}%☔` : ''}</div></div></td>` : '';
   const ico = (i: Item) => i.date < today ? '🎯' : i.tag === 'Scholarship' ? '🏆' : i.event ? '📅' : i.who === 'Amy' ? '📚' : '📝';
 
   const html = `<div style="${F};max-width:540px;margin:0 auto;color:#1f2a23;font-size:15px;line-height:1.4">
   <div style="background-color:#3b2a7a;background-image:linear-gradient(135deg,#1d3f8f,#5b2a86 50%,#f107a3);color:#fff;border-radius:14px;padding:12px 16px;margin:0 0 10px">
     <div style="font-size:20px;font-weight:800">☀️ Knaffla Brief</div><div style="font-size:13px;opacity:.92">${h(wd)}, ${h(shortDate.slice(5))} · <a href="${HOME}" style="color:#ffd86b;font-weight:700;text-decoration:none">Family page →</a></div></div>
   ${bdayToday.map((b) => `<div style="background-color:#d6336c;background-image:linear-gradient(135deg,#c2255c,#e8590c 55%,#f08c00);color:#fff;border-radius:14px;padding:12px 16px;margin:0 0 10px;font-size:20px;font-weight:800;text-align:center">🎈🎂 Happy birthday, ${h(b.who)}! 🎉🎁</div>`).join('')}
-  ${wxHome || wxSecond ? `<table role="presentation" style="width:100%;border-collapse:collapse;margin:0 -4px"><tr>${wxCard(wxHome, '#0b5f73', '#2f86c9')}${wxCard(wxSecond, '#b4400b', '#f08c00')}</tr></table>
-  ${wxHome ? `<div style="margin:6px 0 0;font-size:14px">👗 <b>Wear today:</b> ${h(wear(wxHome))}</div><div style="font-size:12.5px;color:#6b7280">🌅 ${ampm(wxHome.sunrise)} AM · 🌇 ${ampm(wxHome.sunset)} PM · ${moonIco} ${h(moonName)}${tripSoon && wxSecond ? ` · For ${h(tripSoon.name)}: ${h(wear(wxSecond))}` : ''}</div>` : ''}` : ''}
+  ${wxHome || wxLake || wxSecond ? `<table role="presentation" style="width:100%;border-collapse:collapse;margin:0 -3px"><tr>${wxCard(wxHome, '#0b5f73', '#2f86c9')}${wxCard(wxLake, '#1d6b45', '#4a9a3d')}${wxCard(wxSecond, '#b4400b', '#f08c00')}</tr></table>
+  ${wxHome ? `<div style="margin:6px 0 0;font-size:14px">${h((WMO[wxHome.code] || ['', ''])[1])} in town${wxLake ? `, ${h((WMO[wxLake.code] || ['', ''])[1].toLowerCase())} at the lake` : ''}. 👗 <b>Wear:</b> ${h(wear(wxHome))}</div><div style="font-size:12.5px;color:#6b7280">🌅 ${ampm(wxHome.sunrise)} AM · 🌇 ${ampm(wxHome.sunset)} PM · ${moonIco} ${h(moonName)}${tripSoon && wxSecond ? ` · For ${h(tripSoon.name)}: ${h(wear(wxSecond))}` : ''}</div>` : ''}` : ''}
   ${focusCol ? `<div style="margin:16px 0 0;background-color:#1d3f8f;background-image:linear-gradient(135deg,#00274c,#1d3f8f);color:#fff;border-radius:14px;padding:12px 16px">
     <div style="font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:#ffcb05">🎯 Lily, focus on ${h(focusName)}</div>
     <div style="font-size:19px;font-weight:800;margin:2px 0 6px">${focusDays === null ? h(focusName) + ' application' : focusDays <= 0 ? 'Due today! 🙌' : focusDays === 1 ? 'Due tomorrow' : 'Due in ' + focusDays + ' days'}${focusCol.plan && focusCol.plan !== 'Undecided' ? ` <span style="font-size:13px;opacity:.85">(${h(focusCol.plan)})</span>` : ''}</div>
@@ -276,6 +277,7 @@ Deno.serve(async (req) => {
   const text = [`KNAFFLA BRIEF, ${wd}, ${shortDate.slice(5)}  ${HOME}`,
     ...bdayToday.map((b) => `HAPPY BIRTHDAY, ${b.who.toUpperCase()}!`),
     wxHome ? `\nWEATHER: Manistique ${wxHome.now}° ${(WMO[wxHome.code] || ['', ''])[1]}, ${wxHome.hi}°/${wxHome.lo}°. Wear: ${wear(wxHome)}` : '',
+    wxLake ? `Crooked Lake ${wxLake.now}° ${(WMO[wxLake.code] || ['', ''])[1]}, ${wxLake.hi}°/${wxLake.lo}°` : '',
     wxSecond ? `${wxSecond.name.replace('🧳 ', '')} ${wxSecond.now}° ${(WMO[wxSecond.code] || ['', ''])[1]}, ${wxSecond.hi}°/${wxSecond.lo}°` : '',
     focusCol ? `\nLILY, FOCUS ON ${focusName.toUpperCase()}${focusDays !== null ? ` (due ${focusDays <= 0 ? 'today' : 'in ' + focusDays + ' days'})` : ''}\n` + focusItems.map((i) => `- ${i.title} (${when2(i)})`).join('\n') : '',
     top3.length ? '\nTOP 3\n' + top3.map((i) => `- ${i.title} (${(i.who && i.who !== 'Lily' ? i.who + ', ' : '') + when2(i)})`).join('\n') : '',
