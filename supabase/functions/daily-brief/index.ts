@@ -280,8 +280,12 @@ Deno.serve(async (req) => {
   // Yearly dates (birthdays) land on their next occurrence; one-time dates on their day.
   const nextYearly = (m: number, d: number) => { const y = +today.slice(0, 4); const pad = (n: number) => String(n).padStart(2, '0'); const iso = `${y}-${pad(m)}-${pad(d)}`; return iso >= today ? iso : `${y + 1}-${pad(m)}-${pad(d)}`; };
   const dbDates = ((datesRes.data || []) as any[]).map((r) => ({ date: r.on_date || nextYearly(r.month, r.day), title: (r.kind === 'Birthday' ? '🎂 ' : '') + r.title, note: r.note || '', link: HOME, birthday: r.kind === 'Birthday', who: String(r.title).split("'")[0] }));
-  const famDates = [...FAMILY_DATES.map((d) => ({ ...d, birthday: false, who: '' })), ...dbDates].filter((d) => d.date >= today && d.date <= addDays(today, 14)).sort((a, b) => a.date.localeCompare(b.date));
+  const thanksgiving = (y: number) => { const d = new Date(Date.UTC(y, 10, 1)); const first = (4 - d.getUTCDay() + 7) % 7 + 1; return `${y}-11-${String(first + 21).padStart(2, '0')}`; };
+  const holDates = HOLIDAYS.map(([t, m, d]) => { const date = t.includes('Thanksgiving') ? (thanksgiving(+today.slice(0, 4)) >= today ? thanksgiving(+today.slice(0, 4)) : thanksgiving(+today.slice(0, 4) + 1)) : nextYearly(m, d);
+    return { date, title: t, note: '', link: HOME + 'calendar/', birthday: false, holiday: true, who: '' }; });
+  const famDates = [...FAMILY_DATES.map((d) => ({ ...d, birthday: false, holiday: false, who: '' })), ...dbDates.map((d) => ({ ...d, holiday: false })), ...holDates].filter((d) => d.date >= today && d.date <= addDays(today, 14)).sort((a, b) => a.date.localeCompare(b.date));
   const bdayToday = famDates.filter((d) => d.birthday && d.date === today);
+  const holidayToday = famDates.filter((d) => d.holiday && d.date === today);
   // Kevin's wording: nothing is "overdue"; past-due items are things to focus on.
   const inDays = (iso: string) => { const n = daysBetween(today, iso); return n < 0 ? 'focus on' : n === 0 ? 'today' : n === 1 ? 'tomorrow' : `in ${n} days`; };
   const tripInfo = (t: any) => {
@@ -351,7 +355,7 @@ Deno.serve(async (req) => {
   const top3 = [...open.filter((i) => !isFocus(i) && i.tag !== 'Deadline'), ...amyItems.filter((i) => i.date <= addDays(today, 7))]
     .sort((a, b) => (a.date < today ? 0 : 1) - (b.date < today ? 0 : 1) || a.rank - b.rank || a.date.localeCompare(b.date)).slice(0, 3);
   const pills = countdown.filter((c) => !(focusCol && c.cid === focusCol.id)).slice(0, 3);
-  const trip = trips[0], dates = famDates.slice(0, 2);
+  const trip = trips[0], dates = famDates.filter((d) => !(d.holiday && d.date === today)).slice(0, 3);
   const when2 = (i: Item) => i.date < today ? 'focus on' : i.date === today ? 'today' + (i.time ? ', ' + i.time : '') : nice(i.date);
 
   // ---------- email ----------
@@ -377,6 +381,7 @@ Deno.serve(async (req) => {
   const html = `<meta name="color-scheme" content="light"><meta name="supported-color-schemes" content="light"><div style="background:#f6f7f9;padding:10px 0"><div style="${F};max-width:540px;margin:0 auto;background:#ffffff;border-radius:18px;padding:14px;color:#1f2a23;font-size:15px;line-height:1.4">
   <div style="background-color:#3b2a7a;background-image:linear-gradient(135deg,#1d3f8f,#5b2a86 50%,#a3185d);color:#fff;border-radius:14px;padding:12px 16px;margin:0 0 10px">
     <div style="font-size:20px;font-weight:800">☀️ Knaffla Brief</div><div style="font-size:13px;opacity:1">${h(wd)}, ${h(shortDate.slice(5))} · <a href="${HOME}" style="color:#ffe08a;font-weight:700;text-decoration:none">Family page →</a></div></div>
+  ${holidayToday.map((d) => `<div style="background-color:#7c2d12;background-image:linear-gradient(135deg,#3b1d6b,#b4400b);color:#fff;border-radius:14px;padding:12px 16px;margin:0 0 10px;font-size:22px;font-weight:800;text-align:center">${h(d.title.split(' ')[0])} Happy ${h(d.title.replace(/^\S+\s/, ''))}! ${h(d.title.split(' ')[0])}</div>`).join('')}
   ${bdayToday.map((b) => `<div style="background-color:#d6336c;background-image:linear-gradient(135deg,#c2255c,#b4400b 55%,#b4400b);color:#fff;border-radius:14px;padding:12px 16px;margin:0 0 10px;font-size:20px;font-weight:800;text-align:center">🎈🎂 Happy birthday, ${h(b.who)}! 🎉🎁</div>`).join('')}
   ${wxHome || wxLake || wxSecond ? `<table role="presentation" style="width:100%;border-collapse:collapse;margin:0 -3px"><tr>${wxCard(wxHome, '#0b5f73', '#1e5f99')}${wxCard(wxLake, '#1d6b45', '#2e6b30')}${wxCard(wxSecond, '#b4400b', '#b4400b')}</tr></table>
   ${wxHome ? `<div style="margin:6px 0 0;font-size:14px">${h((WMO[wxHome.code] || ['', ''])[1])} in town${wxLake ? `, ${h((WMO[wxLake.code] || ['', ''])[1].toLowerCase())} at the lake` : ''}. 👗 <b>Wear:</b> ${h(wear(wxHome))}</div><div style="font-size:12.5px;color:#4b5563">🌅 ${ampm(wxHome.sunrise)} AM · 🌇 ${ampm(wxHome.sunset)} PM · ${moonIco} ${h(moonName)}${tripSoon && wxSecond ? ` · For ${h(tripSoon.name)}: ${h(wear(wxSecond))}` : ''}</div>` : ''}` : ''}
@@ -394,7 +399,7 @@ Deno.serve(async (req) => {
     <td style="width:76px;vertical-align:top;text-align:center"><div style="background:#fff;color:#3b1d6b;border-radius:14px;padding:6px 4px"><div style="font-size:30px;font-weight:900;line-height:1">${n <= 0 ? '🎉' : n}</div><div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.05em">${n <= 0 ? 'now' : n === 1 ? 'day' : 'days'}</div></div></td></tr></table></div>`; })() : ''}
   ${dates.length ? `<div style="margin:12px 0 0;background-color:#a3361f;background-image:linear-gradient(135deg,#7c2d12,#b4400b);color:#fff;border-radius:16px;padding:14px 16px"><div style="font-size:11.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;opacity:.95;margin-bottom:6px">🗓️ Coming up</div>
     ${dates.map((d) => { const n = daysBetween(today, d.date), vote = /election/i.test(d.title); return `<table role="presentation" style="border-collapse:collapse;width:100%;margin:4px 0"><tr><td style="width:58px;vertical-align:middle"><div style="background:#fff;color:#7c2d12;border-radius:12px;text-align:center;padding:4px 2px"><div style="font-size:11px;font-weight:800;text-transform:uppercase">${h(new Date(d.date + 'T12:00:00Z').toLocaleDateString('en-US', { month: 'short', timeZone: 'UTC' }))}</div><div style="font-size:22px;font-weight:900;line-height:1">${+d.date.slice(8)}</div></div></td>
-      <td style="padding-left:10px;vertical-align:middle"><div style="font-size:17px;font-weight:800">${d.birthday ? '🎂 ' : vote ? '🗳️ ' : '📌 '}${h(d.title.replace('🎂 ', ''))}</div><div style="font-size:13.5px">${n === 0 ? 'Today!' : n === 1 ? 'Tomorrow' : 'In ' + n + ' days'}${vote ? ' · polls 7 AM to 8 PM' : ''}</div>
+      <td style="padding-left:10px;vertical-align:middle"><div style="font-size:17px;font-weight:800">${d.birthday ? '🎂 ' : vote ? '🗳️ ' : (d as any).holiday ? '' : '📌 '}${h(d.title.replace('🎂 ', ''))}</div><div style="font-size:13.5px">${n === 0 ? 'Today!' : n === 1 ? 'Tomorrow' : 'In ' + n + ' days'}${vote ? ' · polls 7 AM to 8 PM' : ''}</div>
       ${vote ? `<a href="${HOME}voter/" style="display:inline-block;margin-top:5px;background:#ffe08a;color:#7c2d12;font-weight:800;font-size:13px;padding:5px 12px;border-radius:999px;text-decoration:none">Open the voter guide →</a>` : ''}</td></tr></table>`; }).join('')}</div>` : ''}
   ${topNews.length || upNews.length ? newsCard('📰', 'Headlines', '#0b5f73', '#1e5f99', [...topNews, ...upNews], 'https://news.google.com/') : ''}
   ${entNews.length ? newsCard('🎬', 'Entertainment', '#8a1f5c', '#a52a52', entNews, 'https://news.google.com/topics/CAAqJggKIiBDQkFTRWdvSUwyMHZNREpxYW5RU0FtVnVHZ0pWVXlnQVAB') : ''}
@@ -420,6 +425,7 @@ Deno.serve(async (req) => {
 
   const text = [`KNAFFLA BRIEF, ${wd}, ${shortDate.slice(5)}  ${HOME}`,
     ...bdayToday.map((b) => `HAPPY BIRTHDAY, ${b.who.toUpperCase()}!`),
+    ...holidayToday.map((d) => `HAPPY ${d.title.replace(/^\S+\s/, '').toUpperCase()}!`),
     wxHome ? `\nWEATHER: Manistique ${wxHome.now}° ${(WMO[wxHome.code] || ['', ''])[1]}, ${wxHome.hi}°/${wxHome.lo}°. Wear: ${wear(wxHome)}` : '',
     wxLake ? `Crooked Lake ${wxLake.now}° ${(WMO[wxLake.code] || ['', ''])[1]}, ${wxLake.hi}°/${wxLake.lo}°` : '',
     wxSecond ? `${wxSecond.name} ${wxSecond.now}° ${(WMO[wxSecond.code] || ['', ''])[1]}, ${wxSecond.hi}°/${wxSecond.lo}°` : '',
@@ -442,7 +448,7 @@ Deno.serve(async (req) => {
     `\nMOON: ${moonName}`,
     fact ? `\nON THIS DAY, ${fact.year}: ${fact.text} ${fact.link}` : '',
     '\n' + signoff].filter((x) => x !== '').join('\n');
-  const subject = `☀️ Knaffla Brief, ${nice(today)}: ${bdayToday.length ? '🎂 Happy birthday, ' + bdayToday.map((b) => b.who).join(' and ') + '! · ' : ''}${focusCol && focusDays !== null && focusDays <= 7 ? `${focusName} ${focusDays <= 0 ? 'due today' : 'in ' + focusDays + ' days'} · ` : ''}${wxHome ? `${(WMO[wxHome.code] || ['🌡️'])[0]} ${wxHome.hi}°` : ''}`.slice(0, 120);
+  const subject = `☀️ Knaffla Brief, ${nice(today)}: ${holidayToday.length ? 'Happy ' + holidayToday[0].title.replace(/^\S+\s/, '') + '! ' + holidayToday[0].title.split(' ')[0] + ' · ' : ''}${bdayToday.length ? '🎂 Happy birthday, ' + bdayToday.map((b) => b.who).join(' and ') + '! · ' : ''}${focusCol && focusDays !== null && focusDays <= 7 ? `${focusName} ${focusDays <= 0 ? 'due today' : 'in ' + focusDays + ' days'} · ` : ''}${wxHome ? `${(WMO[wxHome.code] || ['🌡️'])[0]} ${wxHome.hi}°` : ''}`.slice(0, 120);
 
   const user = Deno.env.get('GMAIL_USER'), pass = Deno.env.get('GMAIL_APP_PASSWORD');
   if (!user || !pass) return reply('Email secrets are not set yet.', 500);
