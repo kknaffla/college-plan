@@ -205,7 +205,10 @@ Deno.serve(async (req) => {
   const places: any[] = Array.isArray(settings.places) && settings.places.length ? settings.places : [{ name: 'Ann Arbor', lat: 42.2808, lon: -83.743 }];
   const tripSoon = trips.find((t) => t.start_date <= addDays(today, 7) && t.destination);
   const tripGeo = tripSoon ? await geocode(tripSoon.destination) : null;
-  const second = tripSoon && tripGeo ? { name: '🧳 ' + tripSoon.destination, lat: tripGeo[0], lon: tripGeo[1] } : places[daysBetween('2026-01-01', today) % places.length];
+  // The third card is a daydream spot that rotates daily, with a rotating tag line; near a trip it's the destination.
+  const TAGS = ['Dreaming of', 'Postcard from', 'Meanwhile in', 'Someday:', 'Wish we were in', 'Road trip to', 'Checking in on'];
+  const pick = places[daysBetween('2026-01-01', today) % places.length];
+  const second = tripSoon && tripGeo ? { name: 'Packing for ' + tripSoon.destination, lat: tripGeo[0], lon: tripGeo[1] } : { name: `${TAGS[daysBetween('2026-01-01', today) % TAGS.length]} ${pick.name}`, lat: pick.lat, lon: pick.lon };
   const followedIds = new Set(((folRes.data || []) as any[]).map((f) => f.artist_id));
   const followers = (id: string) => ((folRes.data || []) as any[]).filter((f) => f.artist_id === id).map((f) => (((memRes.data || []) as any[]).find((m) => m.user_id === f.user_id)?.display_name || '').split(' ')[0]).filter(Boolean);
   const artists = ((artRes.data || []) as any[]).filter((a) => followedIds.has(a.id)).slice(0, 12);
@@ -246,7 +249,7 @@ Deno.serve(async (req) => {
   const sec = (emoji: string, t: string, c: string, link?: string) => `<div style="margin:18px 0 6px;font-size:16px;font-weight:800;color:${c}">${emoji} ${link ? `<a href="${h(link)}" style="color:${c};text-decoration:none">${h(t)}</a>` : h(t)}</div>`;
   const li = (ico: string, title: string, link: string, meta: string, metaColor = '#6b7280') => `<div style="margin:0 0 5px">${ico} <a href="${h(link)}" style="color:#1f2a23;text-decoration:none;font-weight:600">${h(title)}</a> <span style="color:${metaColor};font-size:13px">${h(meta)}</span></div>`;
   const wxCard = (w: Wx | null, c1: string, c2: string) => w ? `<td style="width:33%;padding:3px;vertical-align:top"><div style="background-color:${c1};background-image:linear-gradient(135deg,${c1},${c2});color:#fff;border-radius:12px;padding:9px 10px;min-height:74px">
-      <div style="font-size:12px;font-weight:700;opacity:.92;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${h(w.name)}</div>
+      <div style="font-size:12px;font-weight:700;opacity:.92;line-height:1.2;min-height:29px">${h(w.name)}</div>
       <div style="font-size:24px;font-weight:800;line-height:1.1">${(WMO[w.code] || ['🌡️'])[0]} ${w.now}°</div>
       <div style="font-size:12px">${w.hi}°/${w.lo}°${w.rain >= 30 ? ` · ${w.rain}%☔` : ''}</div></div></td>` : '';
   const ico = (i: Item) => i.date < today ? '🎯' : i.tag === 'Scholarship' ? '🏆' : i.event ? '📅' : i.who === 'Amy' ? '📚' : '📝';
@@ -278,7 +281,7 @@ Deno.serve(async (req) => {
     ...bdayToday.map((b) => `HAPPY BIRTHDAY, ${b.who.toUpperCase()}!`),
     wxHome ? `\nWEATHER: Manistique ${wxHome.now}° ${(WMO[wxHome.code] || ['', ''])[1]}, ${wxHome.hi}°/${wxHome.lo}°. Wear: ${wear(wxHome)}` : '',
     wxLake ? `Crooked Lake ${wxLake.now}° ${(WMO[wxLake.code] || ['', ''])[1]}, ${wxLake.hi}°/${wxLake.lo}°` : '',
-    wxSecond ? `${wxSecond.name.replace('🧳 ', '')} ${wxSecond.now}° ${(WMO[wxSecond.code] || ['', ''])[1]}, ${wxSecond.hi}°/${wxSecond.lo}°` : '',
+    wxSecond ? `${wxSecond.name} ${wxSecond.now}° ${(WMO[wxSecond.code] || ['', ''])[1]}, ${wxSecond.hi}°/${wxSecond.lo}°` : '',
     focusCol ? `\nLILY, FOCUS ON ${focusName.toUpperCase()}${focusDays !== null ? ` (due ${focusDays <= 0 ? 'today' : 'in ' + focusDays + ' days'})` : ''}\n` + focusItems.map((i) => `- ${i.title} (${when2(i)})`).join('\n') : '',
     top3.length ? '\nTOP 3\n' + top3.map((i) => `- ${i.title} (${(i.who && i.who !== 'Lily' ? i.who + ', ' : '') + when2(i)})`).join('\n') : '',
     trip ? `\nTRIP: ${trip.name}, ${tripInfo(trip).soon}${tripInfo(trip).need.length ? '. To book: ' + tripInfo(trip).need.join(', ') : ''}` : '',
