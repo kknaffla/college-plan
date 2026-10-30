@@ -217,9 +217,13 @@ Deno.serve(async (req) => {
     weather('Manistique', 45.9575, -86.2463), weather('Crooked Lake', 46.2494, -85.926), weather(second.name, second.lat, second.lon),
     rss('https://news.google.com/rss?hl=en-US&gl=US&ceid=US:en', 3), rss(GN('Upper Peninsula Michigan when:2d'), 1),
     rss('https://news.google.com/rss/headlines/section/topic/ENTERTAINMENT?hl=en-US&gl=US&ceid=US:en', 2),
-    ...artists.map(async (a) => ({ a, news: (await rss(GN(`"${a.name}" when:7d`), 1))[0] || null, rel: await newRelease(a.name, addDays(today, -30)) })),
+    ...artists.map(async (a) => ({ a, news: (await rss(GN(`"${a.name}" when:7d`), 1))[0] || null, rel: await newRelease(a.name, addDays(today, -30)),
+      tour: (await rss(GN(`"${a.name}" (tour OR concert OR "live at" OR arena OR stadium OR amphitheater) when:14d`), 3)).find((n) => /\b(tour|concert|live|arena|stadium|amphitheat|festival|show)/i.test(n.title)) || null })),
   ]);
   const music = (musicRaw as any[]).filter((m) => m.news || m.rel).slice(0, 4);
+  // On tour: one line per artist with tour news, nearest-sounding first (Michigan, Wisconsin, Minnesota, Chicago).
+  const NEAR = /michigan|detroit|grand rapids|wisconsin|milwaukee|madison|green bay|minnesota|minneapolis|chicago|little caesars|pine knob|van andel|fiserv|soldier field|wrigley/i;
+  const onTour = (musicRaw as any[]).filter((m) => m.tour && m.tour.link !== m.news?.link).sort((a, b) => (NEAR.test(b.tour.title) ? 1 : 0) - (NEAR.test(a.tour.title) ? 1 : 0)).slice(0, 3);
   const [moonIco, moonName] = moon(today);
   const fact = await onThisDay(today);
   // Fun fact: where the stars are heading (tours, concerts, sightings) from the last 3 days of news.
@@ -270,6 +274,7 @@ Deno.serve(async (req) => {
   ${dates.length ? sec('🗓️', 'Coming up', '#a3361f', HOME + 'calendar/') + dates.map((d) => li(d.birthday ? '🎂' : '📌', d.title.replace('🎂 ', ''), d.link, inDays(d.date))).join('') : ''}
   ${topNews.length || upNews.length ? sec('📰', 'Headlines', '#0b5f73') + [...topNews, ...upNews.map((n) => ({ ...n, source: (n.source || '') + ' · Up North' }))].map((n) => li('•', n.title, n.link, n.source)).join('') : ''}
   ${entNews.length ? sec('🎬', 'Entertainment', '#8a1f5c') + entNews.map((n) => li('•', n.title, n.link, n.source)).join('') : ''}
+  ${onTour.length ? sec('🎤', 'On tour', '#e8590c') + onTour.map((m) => `<div style="margin:0 0 5px">${NEAR.test(m.tour.title) ? '📍' : '🚌'} <b style="color:#e8590c">${h(m.a.name)}</b>: <a href="${h(m.tour.link)}" style="color:#1f2a23;text-decoration:none">${h(m.tour.title)}</a> <span style="color:#6b7280;font-size:13px">${h(m.tour.source)}</span></div>`).join('') : ''}
   ${starNews.length ? sec('🌟', 'Where the stars are', '#c2255c') + starNews.map((x) => li('✨', x.it!.title, x.it!.link, x.it!.source)).join('') : ''}
   ${music.length ? sec('🎶', 'Music we follow', '#7b2ff7', HOME + 'music/') + music.map((m) => `<div style="margin:0 0 7px"><b style="color:#7b2ff7">${h(m.a.name)}</b> <span style="color:#9aa1a9;font-size:12px">${h(followers(m.a.id).join(', '))}</span>${m.rel ? `<br>💿 <a href="${h(m.rel.link)}" style="color:#1f2a23;font-weight:600;text-decoration:none">New: ${h(m.rel.title)}</a> <span style="color:#6b7280;font-size:13px">${h(nice(m.rel.date))}</span>` : ''}${m.news ? `<br>🗞️ <a href="${h(m.news.link)}" style="color:#1f2a23;text-decoration:none">${h(m.news.title)}</a> <span style="color:#6b7280;font-size:13px">${h(m.news.source)}</span>` : ''}</div>`).join('') : artists.length ? '' : sec('🎶', 'Follow some music', '#7b2ff7', HOME + 'music/') + '<div style="font-size:13.5px;color:#4b5563">Pick artists on the family page and their news shows up here.</div>'}
   ${fact ? `<div style="margin:18px 0 0;background:#fff8e1;border-radius:12px;padding:10px 14px;font-size:14px"><b style="color:#a8640c">🤓 On this day, ${fact.year}:</b> ${h(fact.text)} <a href="${h(fact.link)}" style="color:#a8640c;font-weight:700;text-decoration:none">more →</a></div>` : ''}
@@ -288,6 +293,7 @@ Deno.serve(async (req) => {
     dates.length ? '\nCOMING UP\n' + dates.map((d) => `- ${d.title.replace('🎂 ', '')} (${inDays(d.date)})`).join('\n') : '',
     topNews.length ? '\nHEADLINES\n' + [...topNews, ...upNews].map((n) => `- ${n.title} (${n.source}) ${n.link}`).join('\n') : '',
     entNews.length ? '\nENTERTAINMENT\n' + entNews.map((n) => `- ${n.title} (${n.source}) ${n.link}`).join('\n') : '',
+    onTour.length ? '\nON TOUR\n' + onTour.map((m) => `- ${m.a.name}: ${m.tour.title} ${m.tour.link}`).join('\n') : '',
     starNews.length ? '\nWHERE THE STARS ARE\n' + starNews.map((x) => `- ${x.it!.title} ${x.it!.link}`).join('\n') : '',
     music.length ? '\nMUSIC\n' + music.map((m) => `- ${m.a.name}: ${m.rel ? 'New: ' + m.rel.title + '. ' : ''}${m.news ? m.news.title : ''}`).join('\n') : '',
     `\nMOON: ${moonName}`,
