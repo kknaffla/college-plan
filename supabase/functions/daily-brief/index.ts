@@ -128,7 +128,6 @@ async function comicOfTheDay(iso: string): Promise<{ strip: string; title: strin
   const items = await rss('https://poorlydrawnlines.com/feed/', 1);
   return items[0] ? { strip: 'Poorly Drawn Lines', title: items[0].title, link: items[0].link } : null;
 }
-}
 
 // Built-in fun lists (no source needed). Word of the day leans toward SAT vocabulary.
 const WORDS: [string, string, string][] = [
