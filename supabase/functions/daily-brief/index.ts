@@ -222,7 +222,8 @@ Deno.serve(async (req) => {
   // ?now=1 sends the full brief to every recipient right away (still needs the brief key); ?intro=1 adds the one-time "New and improved" banner.
   const now = new URL(req.url).searchParams.get('now') === '1';
   const intro = new URL(req.url).searchParams.get('intro') === '1';
-  const today = ymd(new Date());
+  const asOf = new URL(req.url).searchParams.get('as_of') || '';
+  const today = test && /^\d{4}-\d{2}-\d{2}$/.test(asOf) ? asOf : ymd(new Date());
   if (!test && !now) {
     if (!cfg.enabled) return reply('Brief is turned off.');
     if (hourNow() !== cfg.send_hour) return reply('Not send time yet.');
@@ -414,7 +415,7 @@ Deno.serve(async (req) => {
   ${themeItem || !theme.builtin ? `<div style="margin:16px 0 0;background-color:${tc1};background-image:linear-gradient(135deg,${tc1},${tc2});color:#fff;border-radius:16px;padding:14px 16px"><table role="presentation" style="border-collapse:collapse"><tr><td style="font-size:44px;line-height:1;padding-right:12px;vertical-align:top">${h(theme.emoji || '🎨')}</td><td>
     <div style="font-size:11.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;opacity:.95">Theme of the ${theme.start_date === theme.end_date ? 'day' : 'week'} · ${h(theme.theme_name)}</div>
     ${themeItem ? `<div style="font-size:18px;font-weight:800;line-height:1.3;margin:4px 0 2px">${themeItem.kind === 'quote' ? '“' + h(themeItem.text) + '”' : h(themeItem.text)}</div>${themeItem.by ? `<div style="font-size:13.5px;font-weight:600">— ${h(themeItem.by)}</div>` : ''}` : theme.tagline ? `<div style="font-size:17px;font-weight:800;margin-top:4px">${h(theme.tagline)}</div>` : ''}
-    ${themeItem && themeItem.link && /^https:\/\//.test(themeItem.link) ? `<a href="${h(themeItem.link)}" style="display:inline-block;margin-top:9px;background:#ffe08a;color:#1f1147;font-weight:800;font-size:14px;padding:7px 14px;border-radius:999px;text-decoration:none">${h(themeItem.link_label || 'See more')} →</a>` : ''}</td></tr></table></div>` : `<div style="margin:16px 0 0;font-size:14px;font-weight:700;color:#3b1d6b">${h(theme.emoji)} ${h(theme.theme_name)}</div>`}
+    <div style="margin-top:9px">${themeItem && themeItem.audio && /^https:\/\//.test(themeItem.audio) ? `<a href="${h(themeItem.audio)}" style="display:inline-block;margin:0 8px 6px 0;background:#ffffff;color:#1f1147;font-weight:900;font-size:15px;padding:8px 16px;border-radius:999px;text-decoration:none">🔊 ${h(themeItem.audio_label || 'Hear it')}</a>` : ''}${themeItem && themeItem.link && /^https:\/\//.test(themeItem.link) ? `<a href="${h(themeItem.link)}" style="display:inline-block;margin:0 8px 6px 0;background:#ffe08a;color:#1f1147;font-weight:800;font-size:14px;padding:7px 14px;border-radius:999px;text-decoration:none">${h(themeItem.link_label || 'See more')} →</a>` : ''}</div></td></tr></table></div>` : `<div style="margin:16px 0 0;font-size:14px;font-weight:700;color:#3b1d6b">${h(theme.emoji)} ${h(theme.theme_name)}</div>`}
   ${trip ? (() => { const x = tripInfo(trip), n = daysBetween(today, trip.start_date); return `<div style="margin:16px 0 0;background-color:#5b2a86;background-image:linear-gradient(135deg,#3b1d6b,#9c2559);color:#fff;border-radius:16px;padding:14px 16px"><table role="presentation" style="border-collapse:collapse;width:100%"><tr>
     <td style="vertical-align:top"><div style="font-size:11.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;opacity:.95">🧳 Next trip</div>
       <a href="${TRIPS}#/trip/${h(trip.id)}" style="display:block;color:#fff;text-decoration:none;font-size:22px;font-weight:800;line-height:1.15;margin:2px 0 4px">${h(trip.name)}</a>
@@ -475,7 +476,7 @@ Deno.serve(async (req) => {
     question ? `\nDINNER TABLE QUESTION: ${question}` : '',
     countdowns.length ? '\nCOUNTDOWNS: ' + countdowns.map((c) => `${c.title} ${c.n}d`).join(', ') : '',
     comic ? `\nCOMIC OF THE DAY (${comic.strip}): ${comic.title} ${comic.link}` : '',
-    `\nTHEME: ${theme.theme_name}${themeItem ? ' · ' + (themeItem.kind === 'quote' ? '"' + themeItem.text + '"' : themeItem.text) + (themeItem.by ? ' (' + themeItem.by + ')' : '') + (themeItem.link ? ' ' + themeItem.link : '') : ''}`,
+    `\nTHEME: ${theme.theme_name}${themeItem ? ' · ' + (themeItem.kind === 'quote' ? '"' + themeItem.text + '"' : themeItem.text) + (themeItem.by ? ' (' + themeItem.by + ')' : '') + (themeItem.audio ? ' Hear it: ' + themeItem.audio : '') + (themeItem.link ? ' ' + themeItem.link : '') : ''}`,
     `\nMOON: ${moonName}`,
     fact ? `\nON THIS DAY, ${fact.year}: ${fact.text} ${fact.link}` : '',
     '\n' + signoff].filter((x) => x !== '').join('\n');
