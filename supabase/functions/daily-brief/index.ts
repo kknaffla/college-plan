@@ -105,6 +105,25 @@ async function onThisDay(iso: string): Promise<{ text: string; year: number; lin
   } catch { return null; }
 }
 
+// Daily fun: one easy trivia question (Open Trivia DB), a dad joke, and the latest xkcd (CC BY-NC, credited).
+type Quiz = { category: string; question: string; answer: string; choices: string[] };
+async function trivia(iso: string): Promise<Quiz | null> {
+  const r = await get('https://opentdb.com/api.php?amount=1&type=multiple&difficulty=easy&encode=url3986'); if (!r) return null;
+  try { const q: any = (await r.json()).results?.[0]; if (!q) return null; const d = decodeURIComponent;
+    const choices = [...q.incorrect_answers.map(d), d(q.correct_answer)]; const seed = daysBetween('2026-01-01', iso);
+    for (let i = choices.length - 1; i > 0; i--) { const j = (seed * 7 + i * 13) % (i + 1); [choices[i], choices[j]] = [choices[j], choices[i]]; }
+    return { category: d(q.category).replace(/^Entertainment: |^Science: /, ''), question: d(q.question), answer: d(q.correct_answer), choices };
+  } catch { return null; }
+}
+async function dadJoke(): Promise<string> {
+  const r = await fetch('https://icanhazdadjoke.com/', { headers: { accept: 'application/json', 'user-agent': 'KnafflaBrief/1.0 (family email)' }, signal: AbortSignal.timeout(6000) }).catch(() => null);
+  if (!r || !r.ok) return ''; try { return String((await r.json()).joke || '').slice(0, 240); } catch { return ''; }
+}
+async function xkcd(): Promise<{ title: string; img: string; alt: string; link: string } | null> {
+  const r = await get('https://xkcd.com/info.0.json'); if (!r) return null;
+  try { const j: any = await r.json(); return j.img && /^https:\/\/imgs\.xkcd\.com\//.test(j.img) ? { title: j.safe_title, img: j.img, alt: String(j.alt || '').slice(0, 200), link: 'https://xkcd.com/' + j.num + '/' } : null; } catch { return null; }
+}
+
 type Item = { date: string; time?: string | null; title: string; who?: string; tag: string; rank: number; link: string; senior?: boolean; event?: boolean; cid?: string };
 
 Deno.serve(async (req) => {
@@ -225,7 +244,9 @@ Deno.serve(async (req) => {
   const NEAR = /michigan|detroit|grand rapids|wisconsin|milwaukee|madison|green bay|minnesota|minneapolis|chicago|little caesars|pine knob|van andel|fiserv|soldier field|wrigley/i;
   const onTour = (musicRaw as any[]).filter((m) => m.tour && m.tour.link !== m.news?.link).sort((a, b) => (NEAR.test(b.tour.title) ? 1 : 0) - (NEAR.test(a.tour.title) ? 1 : 0)).slice(0, 3);
   const [moonIco, moonName] = moon(today);
-  const fact = await onThisDay(today);
+  const [fact, quiz, joke, comic] = await Promise.all([onThisDay(today), trivia(today), dadJoke(), xkcd()]);
+  // The answer hides behind a tap: a link to the family calendar page with the answer in the hash, shown on arrival.
+  const revealLink = quiz ? HOME + 'calendar/#answer=' + encodeURIComponent(quiz.answer) : '';
   // Fun fact: where the stars are heading (tours, concerts, sightings) from the last 3 days of news.
   const stars: string[] = Array.isArray(settings.stars) ? settings.stars.slice(0, 3) : [];
   const starNews = (await Promise.all(stars.map(async (n) => ({ n, it: (await rss(GN(`"${n}" (tour OR concert OR heading OR visits OR spotted OR stadium) when:3d`), 1))[0] || null })))).filter((x) => x.it);
@@ -277,6 +298,13 @@ Deno.serve(async (req) => {
   ${onTour.length ? sec('🎤', 'On tour', '#e8590c') + onTour.map((m) => `<div style="margin:0 0 5px">${NEAR.test(m.tour.title) ? '📍' : '🚌'} <b style="color:#e8590c">${h(m.a.name)}</b>: <a href="${h(m.tour.link)}" style="color:#1f2a23;text-decoration:none">${h(m.tour.title)}</a> <span style="color:#6b7280;font-size:13px">${h(m.tour.source)}</span></div>`).join('') : ''}
   ${starNews.length ? sec('🌟', 'Where the stars are', '#c2255c') + starNews.map((x) => li('✨', x.it!.title, x.it!.link, x.it!.source)).join('') : ''}
   ${music.length ? sec('🎶', 'Music we follow', '#7b2ff7', HOME + 'music/') + music.map((m) => `<div style="margin:0 0 7px"><b style="color:#7b2ff7">${h(m.a.name)}</b> <span style="color:#9aa1a9;font-size:12px">${h(followers(m.a.id).join(', '))}</span>${m.rel ? `<br>💿 <a href="${h(m.rel.link)}" style="color:#1f2a23;font-weight:600;text-decoration:none">New: ${h(m.rel.title)}</a> <span style="color:#6b7280;font-size:13px">${h(nice(m.rel.date))}</span>` : ''}${m.news ? `<br>🗞️ <a href="${h(m.news.link)}" style="color:#1f2a23;text-decoration:none">${h(m.news.title)}</a> <span style="color:#6b7280;font-size:13px">${h(m.news.source)}</span>` : ''}</div>`).join('') : artists.length ? '' : sec('🎶', 'Follow some music', '#7b2ff7', HOME + 'music/') + '<div style="font-size:13.5px;color:#4b5563">Pick artists on the family page and their news shows up here.</div>'}
+  ${quiz ? `<div style="margin:18px 0 0;background-color:#0b5f73;background-image:linear-gradient(135deg,#0b5f73,#138a6c);color:#fff;border-radius:14px;padding:12px 16px">
+    <div style="font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;opacity:.9">🧠 Daily quiz · ${h(quiz.category)}</div>
+    <div style="font-size:16px;font-weight:700;margin:4px 0 8px">${h(quiz.question)}</div>
+    <div style="font-size:14px">${quiz.choices.map((c, i) => `<span style="display:inline-block;background:rgba(255,255,255,.18);border-radius:999px;padding:3px 11px;margin:0 6px 6px 0">${'ABCD'[i]}. ${h(c)}</span>`).join('')}</div>
+    <div style="font-size:13px"><a href="${h(revealLink)}" style="color:#ffd86b;font-weight:800;text-decoration:none">Tap to reveal the answer →</a> · first right answer at breakfast wins 🏅</div></div>` : ''}
+  ${joke ? `<div style="margin:12px 0 0;background:#fbe7ef;border-radius:12px;padding:10px 14px;font-size:14px"><b style="color:#c2306f">😂 Dad joke:</b> ${h(joke)}</div>` : ''}
+  ${comic ? `<div style="margin:12px 0 0;text-align:center"><a href="${h(comic.link)}" style="text-decoration:none;color:#6b7280;font-size:12px"><img src="${h(comic.img)}" alt="${h(comic.alt)}" title="${h(comic.alt)}" style="max-width:100%;max-height:260px;width:auto;border-radius:10px;border:1px solid #e5e7eb"><br>✏️ xkcd: ${h(comic.title)} (xkcd.com, CC BY-NC)</a></div>` : ''}
   ${fact ? `<div style="margin:18px 0 0;background:#fff8e1;border-radius:12px;padding:10px 14px;font-size:14px"><b style="color:#a8640c">🤓 On this day, ${fact.year}:</b> ${h(fact.text)} <a href="${h(fact.link)}" style="color:#a8640c;font-weight:700;text-decoration:none">more →</a></div>` : ''}
   ${(() => { const B: [string, string, string, string][] = [['🎓 Lily', APP, '#1d3f8f', '#2f86c9'], ['📚 Amy', HOME + 'amy/', '#8a1f5c', '#d9486f'], ['🧳 Trips', TRIPS, '#5b2a86', '#c2306f'], ['📅 Calendar', HOME + 'calendar/', '#a3361f', '#d9762b'], ['🎶 Music', HOME + 'music/', '#2b1055', '#f107a3'], ['🏡 Family', HOME, '#0b5f73', '#138a6c']];
     return `<table role="presentation" style="width:100%;border-collapse:separate;border-spacing:6px;margin:16px -6px 0"><tr>${B.slice(0, 3).map(([t, u, c1, c2]) => `<td style="width:33%"><a href="${u}" style="display:block;text-align:center;background-color:${c1};background-image:linear-gradient(135deg,${c1},${c2});color:#fff;font-weight:800;font-size:15px;padding:14px 6px;border-radius:14px;text-decoration:none">${t}</a></td>`).join('')}</tr><tr>${B.slice(3).map(([t, u, c1, c2]) => `<td style="width:33%"><a href="${u}" style="display:block;text-align:center;background-color:${c1};background-image:linear-gradient(135deg,${c1},${c2});color:#fff;font-weight:800;font-size:15px;padding:14px 6px;border-radius:14px;text-decoration:none">${t}</a></td>`).join('')}</tr></table>`; })()}
@@ -296,6 +324,9 @@ Deno.serve(async (req) => {
     onTour.length ? '\nON TOUR\n' + onTour.map((m) => `- ${m.a.name}: ${m.tour.title} ${m.tour.link}`).join('\n') : '',
     starNews.length ? '\nWHERE THE STARS ARE\n' + starNews.map((x) => `- ${x.it!.title} ${x.it!.link}`).join('\n') : '',
     music.length ? '\nMUSIC\n' + music.map((m) => `- ${m.a.name}: ${m.rel ? 'New: ' + m.rel.title + '. ' : ''}${m.news ? m.news.title : ''}`).join('\n') : '',
+    quiz ? `\nDAILY QUIZ (${quiz.category}): ${quiz.question}\n` + quiz.choices.map((c, i) => `  ${'ABCD'[i]}. ${c}`).join('\n') + `\n  Answer: ${revealLink}` : '',
+    joke ? `\nDAD JOKE: ${joke}` : '',
+    comic ? `\nCARTOON: ${comic.title} ${comic.link}` : '',
     `\nMOON: ${moonName}`,
     fact ? `\nON THIS DAY, ${fact.year}: ${fact.text} ${fact.link}` : '',
     '\n' + signoff].filter((x) => x !== '').join('\n');
