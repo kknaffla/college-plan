@@ -3,7 +3,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '2026.10.28-3'; // keep in sync with the ?v= tags in index.html
+  const APP_VERSION = '2026.11.02-1'; // keep in sync with the ?v= tags in index.html
   const CFG = window.APP_CONFIG || {};
   const TZ = CFG.TIME_ZONE || 'America/Detroit';
   const WEEK_START = CFG.WEEK_START || '2026-10-25';
@@ -83,7 +83,7 @@
   // active = something the family still has to act on by that date.
   function allEvents() {
     const ev = [];
-    state.tasks.forEach((t) => { if (t.due_date) ev.push({ kind: 'task', date: t.due_date, time: t.due_time, id: t.id, title: t.title, owner: t.owner, active: isOpen(t), row: t }); });
+    state.tasks.forEach((t) => { if (t.due_date && t.status !== 'Not needed') ev.push({ kind: 'task', date: t.due_date, time: t.due_time, id: t.id, title: t.title, owner: t.owner, active: isOpen(t), row: t }); });
     state.colleges.forEach((c) => { if (c.deadline && c.status !== 'Not applying') ev.push({ kind: 'college', date: c.deadline, time: c.deadline_time, id: c.id, title: c.name + ' deadline', active: !COLLEGE_DONE.includes(c.status), row: c }); });
     state.scholarships.forEach((s) => { if (s.deadline && !['Not pursuing', 'Not awarded'].includes(s.status)) ev.push({ kind: 'sch', date: s.deadline, time: s.deadline_time, id: s.id, title: s.name, active: SCH_ACTIVE.includes(s.status), row: s }); });
     state.visits.forEach((v) => { if (v.visit_date) ev.push({ kind: 'visit', date: v.visit_date, id: v.id, title: (collegeName(v.college_id) || 'Visit') + ' · ' + v.kind, active: v.visit_date >= todayISO(), row: v }); });
@@ -501,7 +501,7 @@
     const localOpen = state.scholarships.filter((s) => scopeOf(s) === 'Local' && ['Researching', 'Planning', 'In progress'].includes(s.status)).length;
     const awarded = state.scholarships.filter((s) => s.status === 'Awarded').length;
     const recent = [].concat(
-      state.tasks.map((r) => ({ t: r.updated_at, by: r.updated_by, label: r.title, kind: 'task', status: r.status })),
+      state.tasks.filter((r) => r.status !== 'Not needed').map((r) => ({ t: r.updated_at, by: r.updated_by, label: r.title, kind: 'task', status: r.status })),
       state.colleges.map((r) => ({ t: r.updated_at, by: r.updated_by, label: r.name, kind: 'college', status: r.status })),
       state.scholarships.map((r) => ({ t: r.updated_at, by: r.updated_by, label: r.name, kind: 'scholarship', status: r.status }))
     ).filter((r) => r.by).sort((a, b) => (b.t || '').localeCompare(a.t || '')).slice(0, 3);
@@ -588,7 +588,7 @@
     const w = weekWindow();
     const days = [];
     for (let d = w.start; d <= w.end; d = addDays(d, 1)) days.push(d);
-    const inWeek = state.tasks.filter((t) => t.due_date && t.due_date >= w.start && t.due_date <= w.end).sort(byDue);
+    const inWeek = state.tasks.filter((t) => t.due_date && t.status !== 'Not needed' && t.due_date >= w.start && t.due_date <= w.end).sort(byDue);
     const others = allEvents().filter((e) => e.kind !== 'task' && e.date >= w.start && e.date <= w.end);
     const blocked = inWeek.filter((t) => t.blocker && isOpen(t));
     const [filter] = [sessionGet('weekOwner') || 'All'];
@@ -748,7 +748,9 @@
     const c = state.colleges.find((x) => x.id === id);
     if (!c) return '<p>College not found. <a href="#/colleges">Back</a></p>';
     const ts = state.tasks.filter((t) => t.college_id === id).sort(byDue);
-    const groups = CATEGORIES.map((cat) => [cat, ts.filter((t) => t.category === cat)]).filter(([, l]) => l.length);
+    // Open tasks show by category; finished and not-needed ones fold into one closed list.
+    const openTs = ts.filter(isOpen), closedTs = ts.filter((t) => !isOpen(t));
+    const groups = CATEGORIES.map((cat) => [cat, openTs.filter((t) => t.category === cat)]).filter(([, l]) => l.length);
     const sch = state.scholarships.filter((s) => s.college_id === id);
     const vis = state.visits.filter((v) => v.college_id === id).sort((a, b) => (b.visit_date || '').localeCompare(a.visit_date || ''));
     const off = bestOffer(id);
@@ -770,7 +772,8 @@
         <p class="small"><b>Submission receipt:</b> ${c.submitted_on ? 'Submitted ' + fmtDate(c.submitted_on) : 'Not submitted yet'}${c.receipt_note ? ' — ' + esc(c.receipt_note) : ''}</p>
       </div>
       <div class="spread"><h2>Tasks</h2><button class="primary" id="addTask" data-college="${c.id}" style="margin-top:1rem">+ Task</button></div>
-      ${groups.length ? groups.map(([cat, l]) => `<h3 class="muted small" style="margin:1rem 0 .4rem;text-transform:uppercase;letter-spacing:.05em">${esc(cat)}</h3>${l.map((t) => taskCard(t, { expand: true, hideCollege: true })).join('')}`).join('') : '<p class="muted small">No tasks yet.</p>'}
+      ${groups.length ? groups.map(([cat, l]) => `<h3 class="muted small" style="margin:1rem 0 .4rem;text-transform:uppercase;letter-spacing:.05em">${esc(cat)}</h3>${l.map((t) => taskCard(t, { expand: true, hideCollege: true })).join('')}`).join('') : `<p class="muted small">${ts.length ? 'No open tasks.' : 'No tasks yet.'}</p>`}
+      ${closedTs.length ? `<details class="donegroup"><summary>Done and set aside (${closedTs.length})</summary>${closedTs.map((t) => taskCard(t, { hideCollege: true })).join('')}</details>` : ''}
       ${factsSection(c)}
       ${sch.length ? `<h2>Scholarships</h2>${sch.map(schCard).join('')}` : ''}
       <div class="spread"><h2>Visits</h2><button id="addVisit" data-college="${c.id}" style="margin-top:1rem">+ Visit</button></div>
