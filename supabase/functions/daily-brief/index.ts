@@ -64,13 +64,14 @@ function wear(w: Wx): string {
 const ampm = (hm: string) => { const [H, M] = hm.split(':').map(Number); return `${H % 12 || 12}:${String(M).padStart(2, '0')}`; };
 const decode = (s: string) => s.replace(/<!\[CDATA\[|\]\]>/g, '').replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').trim();
 type News = { title: string; source: string; link: string; date: number };
-async function rss(url: string, n: number, fallbackSrc = ''): Promise<News[]> {
+// maxAgeDays > 0 drops stories older than that (or with no date): Kevin saw week-old music news.
+async function rss(url: string, n: number, fallbackSrc = '', maxAgeDays = 0): Promise<News[]> {
   const r = await get(url); if (!r) return [];
-  const x = await r.text(), out: News[] = [];
+  const x = await r.text(), out: News[] = [], cutoff = maxAgeDays ? Date.now() - maxAgeDays * 86400000 : 0;
   for (const m of x.matchAll(/<item>([\s\S]*?)<\/item>/g)) {
     const it = m[1], t = decode((it.match(/<title>([\s\S]*?)<\/title>/) || [])[1] || ''), l = decode((it.match(/<link>([\s\S]*?)<\/link>/) || [])[1] || ''), src = decode((it.match(/<source[^>]*>([\s\S]*?)<\/source>/) || [])[1] || '');
     const d = Date.parse((it.match(/<pubDate>([\s\S]*?)<\/pubDate>/) || [])[1] || '') || 0;
-    if (!t || !/^https:\/\//.test(l)) continue;
+    if (!t || !/^https:\/\//.test(l) || (cutoff && d < cutoff)) continue;
     out.push({ title: src && t.endsWith(' - ' + src) ? t.slice(0, -(src.length + 3)) : t, source: src || fallbackSrc, link: l, date: d });
     if (out.length >= n) break;
   }
@@ -108,29 +109,6 @@ async function onThisDay(iso: string): Promise<{ text: string; year: number; lin
   } catch { return null; }
 }
 
-// Daily fun: one easy trivia question (Open Trivia DB), a dad joke, and the latest xkcd (CC BY-NC, credited).
-type Quiz = { category: string; question: string; answer: string; choices: string[] };
-async function trivia(iso: string): Promise<Quiz | null> {
-  const r = await get('https://opentdb.com/api.php?amount=1&type=multiple&difficulty=easy&encode=url3986'); if (!r) return null;
-  try { const q: any = (await r.json()).results?.[0]; if (!q) return null; const d = decodeURIComponent;
-    const choices = [...q.incorrect_answers.map(d), d(q.correct_answer)]; const seed = daysBetween('2026-01-01', iso);
-    for (let i = choices.length - 1; i > 0; i--) { const j = (seed * 7 + i * 13) % (i + 1); [choices[i], choices[j]] = [choices[j], choices[i]]; }
-    return { category: d(q.category).replace(/^Entertainment: |^Science: /, ''), question: d(q.question), answer: d(q.correct_answer), choices };
-  } catch { return null; }
-}
-async function dadJoke(): Promise<string> {
-  const r = await fetch('https://icanhazdadjoke.com/', { headers: { accept: 'application/json', 'user-agent': 'KnafflaBrief/1.0 (family email)' }, signal: AbortSignal.timeout(6000) }).catch(() => null);
-  if (!r || !r.ok) return ''; try { return String((await r.json()).joke || '').slice(0, 240); } catch { return ''; }
-}
-// Comic of the day: a link card, never a copied image, so any strip is fair to share. Poorly Drawn Lines most days (gentle,
-// absurd humor the whole family gets), xkcd on the others. Kevin found a random xkcd too nerdy, so xkcd is the minority.
-async function comicOfTheDay(iso: string): Promise<{ strip: string; title: string; link: string } | null> {
-  const useXkcd = daysBetween('2026-01-01', iso) % 3 === 0;
-  if (useXkcd) { const r = await get('https://xkcd.com/info.0.json'); if (!r) return null;
-    try { const j: any = await r.json(); return { strip: 'xkcd', title: j.safe_title, link: 'https://xkcd.com/' + j.num + '/' }; } catch { return null; } }
-  const items = await rss('https://poorlydrawnlines.com/feed/', 1);
-  return items[0] ? { strip: 'Poorly Drawn Lines', title: items[0].title, link: items[0].link } : null;
-}
 
 // Built-in fun lists (no source needed). Word of the day leans toward SAT vocabulary.
 const WORDS: [string, string, string][] = [
@@ -160,16 +138,14 @@ const HOLIDAYS: [string, number, number][] = [['🎄 Christmas', 12, 25], ['🎆
 
 // Game day: our teams' games today and tomorrow, and yesterday's scores, from ESPN's public scoreboard (no key).
 // ESPN short names: "Michigan St" (not State), "Northern Michigan", "Michigan Tech". Division II football is group 35; college hockey has its own feed.
-// Kevin: only the games that matter. Rivalries always; Michigan and MSU football and basketball; every Lions game;
-// anything marked a playoff, bowl or tournament; Tech and NMU only when they meet. No regular-season NHL, NBA or MLB.
-const TEAMS = ['Michigan', 'Michigan St', 'Michigan State', 'Michigan Tech', 'Northern Michigan', 'Lions', 'Red Wings', 'Tigers', 'Pistons'];
-const RIVALS = [['Michigan', 'Michigan St'], ['Michigan', 'Michigan State'], ['Michigan', 'Ohio State'], ['Michigan St', 'Ohio State'], ['Lions', 'Packers'], ['Lions', 'Bears'], ['Michigan Tech', 'Northern Michigan']];
-const BIG = /playoff|bowl|championship|final four|elite eight|sweet 16|world series|stanley cup|frozen four|rivalry|trophy/i;
+// Kevin (Nov 2): only the big sports (football, men's basketball, men's hockey) for Michigan, MSU, Michigan Tech and NMU. No pro teams.
+const TEAMS = ['Michigan', 'Michigan St', 'Michigan State', 'Michigan Tech', 'Northern Michigan'];
+const RIVALS = [['Michigan', 'Michigan St'], ['Michigan', 'Michigan State'], ['Michigan', 'Ohio State'], ['Michigan St', 'Ohio State'], ['Michigan Tech', 'Northern Michigan']];
 type Game = { when: string; label: string; detail: string; tv: string; rivalry: boolean; final: boolean; ours: boolean };
 async function games(dayISO: string): Promise<Game[]> {
   const d = dayISO.replace(/-/g, ''), out: Game[] = [];
-  const feeds = [`football/college-football/scoreboard?groups=80&dates=${d}&limit=300`, `football/college-football/scoreboard?groups=35&dates=${d}&limit=300`, `football/nfl/scoreboard?dates=${d}`,
-    `hockey/mens-college-hockey/scoreboard?dates=${d}&limit=100`, `hockey/nhl/scoreboard?dates=${d}`, `basketball/mens-college-basketball/scoreboard?groups=50&dates=${d}&limit=300`, `basketball/nba/scoreboard?dates=${d}`, `baseball/mlb/scoreboard?dates=${d}`];
+  const feeds = [`football/college-football/scoreboard?groups=80&dates=${d}&limit=300`, `football/college-football/scoreboard?groups=35&dates=${d}&limit=300`,
+    `hockey/mens-college-hockey/scoreboard?dates=${d}&limit=100`, `basketball/mens-college-basketball/scoreboard?groups=50&dates=${d}&limit=300`];
   const res = await Promise.all(feeds.map((f) => get('https://site.api.espn.com/apis/site/v2/sports/' + f, 5000)));
   for (const r of res) { if (!r) continue;
     try { const j: any = await r.json();
@@ -178,14 +154,11 @@ async function games(dayISO: string): Promise<Game[]> {
         const ours = names.filter((n) => TEAMS.some((t) => n === t));
         if (!ours.length) continue;
         const rivalry = RIVALS.some(([a, b]) => names.includes(a) && names.includes(b));
-        const sportKey = /hockey/.test(String(r.url)) ? 'hockey' : /basketball/.test(String(r.url)) ? 'basketball' : /baseball/.test(String(r.url)) ? 'baseball' : 'football';
-        const college = /college/.test(String(r.url)), big = BIG.test(String(e.name || '') + ' ' + String(c.notes?.[0]?.headline || '') + ' ' + String(e.season?.type?.name || ''));
-        const bigTeam = ours.some((n) => ['Michigan', 'Michigan St', 'Michigan State'].includes(n)) && college && sportKey !== 'hockey' && sportKey !== 'baseball';
-        if (!(rivalry || big || bigTeam || names.includes('Lions'))) continue;
+        const sportKey = /hockey/.test(String(r.url)) ? 'hockey' : /basketball/.test(String(r.url)) ? 'basketball' : 'football';
         const final = e.status?.type?.completed === true;
         const score = final ? c.competitors.map((x: any) => `${x.team.shortDisplayName} ${x.score}`).join(', ') : '';
         const t = new Date(e.date).toLocaleTimeString('en-US', { timeZone: TZ, hour: 'numeric', minute: '2-digit' }).replace(':00', '');
-        const sport = sportKey === 'hockey' ? '🏒 ' : sportKey === 'basketball' ? '🏀 ' : sportKey === 'baseball' ? '⚾ ' : '🏈 ';
+        const sport = sportKey === 'hockey' ? '🏒 ' : sportKey === 'basketball' ? '🏀 ' : '🏈 ';
         out.push({ when: e.date, label: sport + names.join(' vs ').replace('Michigan St ', 'Michigan State ').replace(/Michigan St$/, 'Michigan State'), detail: final ? score.replace(/Michigan St /g, 'Michigan State ') : t, tv: c.broadcasts?.[0]?.names?.[0] || '', rivalry, final, ours: true });
       }
     } catch { /* skip this feed */ }
@@ -318,13 +291,18 @@ Deno.serve(async (req) => {
   const when = (i: Item) => (i.date === today ? 'Today' : nice(i.date)) + (i.time ? ', ' + i.time : '');
 
   // ---------- outside sections: weather, headlines, music (each optional; the email still goes out without them) ----------
-  const places: any[] = Array.isArray(settings.places) && settings.places.length ? settings.places : [{ name: 'Ann Arbor', lat: 42.2808, lon: -83.743 }];
-  const tripSoon = trips.find((t) => t.start_date <= addDays(today, 7) && t.destination);
+  // Fun spots mix daily: the family's list (brief_settings.places) plus a built-in set, so it never sticks on one or two.
+  const FUN_PLACES = [{ name: 'Ann Arbor', lat: 42.2808, lon: -83.743 }, { name: 'Maui', lat: 20.7984, lon: -156.3319 }, { name: 'Yellowstone', lat: 44.428, lon: -110.5885 }, { name: 'Paris', lat: 48.8566, lon: 2.3522 },
+    { name: 'Mackinac Island', lat: 45.8492, lon: -84.6189 }, { name: 'Banff', lat: 51.1784, lon: -115.5708 }, { name: 'Key West', lat: 24.5551, lon: -81.78 }, { name: 'Salzburg', lat: 47.8095, lon: 13.055 },
+    { name: 'Nashville', lat: 36.1627, lon: -86.7816 }, { name: 'Sydney', lat: -33.8688, lon: 151.2093 }, { name: 'Grand Canyon', lat: 36.0544, lon: -112.1401 }, { name: 'Reykjavik', lat: 64.1466, lon: -21.9426 }];
+  const places: any[] = [...(Array.isArray(settings.places) ? settings.places : []), ...FUN_PLACES].filter((p, i, a) => p && p.name && a.findIndex((q) => q.name === p.name) === i);
+  // The trip only takes the third card when we leave within 3 days or are away now (Kevin, Nov 2).
+  const tripSoon = trips.find((t) => t.start_date <= addDays(today, 3) && t.destination);
   const tripGeo = tripSoon ? await geocode(tripSoon.destination) : null;
-  // The third card is a daydream spot that rotates daily, with a rotating tag line; near a trip it's the destination.
+  // The third card is a daydream spot that rotates daily, with a rotating tag line; just before or during a trip it's the destination.
   const TAGS = ['Dreaming of', 'Postcard from', 'Meanwhile in', 'Someday:', 'Wish we were in', 'Road trip to', 'Checking in on'];
   const pick = places[daysBetween('2026-01-01', today) % places.length];
-  const second = tripSoon && tripGeo ? { name: 'Packing for ' + tripSoon.destination, lat: tripGeo[0], lon: tripGeo[1] } : { name: `${TAGS[daysBetween('2026-01-01', today) % TAGS.length]} ${pick.name}`, lat: pick.lat, lon: pick.lon };
+  const second = tripSoon && tripGeo ? { name: (tripSoon.start_date <= today ? 'In ' : 'Packing for ') + tripSoon.destination, lat: tripGeo[0], lon: tripGeo[1] } : { name: `${TAGS[daysBetween('2026-01-01', today) % TAGS.length]} ${pick.name}`, lat: pick.lat, lon: pick.lon };
   const followedIds = new Set(((folRes.data || []) as any[]).map((f) => f.artist_id));
   const followers = (id: string) => ((folRes.data || []) as any[]).filter((f) => f.artist_id === id).map((f) => (((memRes.data || []) as any[]).find((m) => m.user_id === f.user_id)?.display_name || '').split(' ')[0]).filter(Boolean);
   const artists = ((artRes.data || []) as any[]).filter((a) => followedIds.has(a.id)).slice(0, 12);
@@ -332,14 +310,14 @@ Deno.serve(async (req) => {
   const [wxHome, wxLake, wxSecond, topNews, upNews, entNews, ...musicRaw] = await Promise.all([
     weather('Manistique', 45.9575, -86.2463), weather('Crooked Lake', 46.2494, -85.926), weather(second.name, second.lat, second.lon),
     // Headlines: Google top stories, else BBC US. Up North: WLUC TV6 (Marquette). Entertainment: Google, else Variety.
-    rss('https://news.google.com/rss?hl=en-US&gl=US&ceid=US:en', 2).then(async (g) => g.length ? g : rss('https://feeds.bbci.co.uk/news/world/us_and_canada/rss.xml', 2, 'BBC')),
-    rss('https://www.uppermichiganssource.com/arc/outboundfeeds/rss/?outputType=xml', 1, 'TV6 Upper Michigan'),
-    rss('https://news.google.com/rss/headlines/section/topic/ENTERTAINMENT?hl=en-US&gl=US&ceid=US:en', 1).then(async (g) => g.length ? g : rss('https://variety.com/feed/', 1, 'Variety')),
-    ...artists.map(async (a) => ({ a, news: (await rss(GN(`"${a.name}" when:7d`), 1))[0] || null, rel: await newRelease(a.name, addDays(today, -30)),
-      tour: (await rss(GN(`"${a.name}" (tour OR concert OR "live at" OR arena OR stadium OR amphitheater) when:14d`), 3)).find((n) => /\b(tour|concert|live|arena|stadium|amphitheat|festival|show)/i.test(n.title)) || null })),
+    rss('https://news.google.com/rss?hl=en-US&gl=US&ceid=US:en', 2, '', 2).then(async (g) => g.length ? g : rss('https://feeds.bbci.co.uk/news/world/us_and_canada/rss.xml', 2, 'BBC', 2)),
+    rss('https://www.uppermichiganssource.com/arc/outboundfeeds/rss/?outputType=xml', 1, 'TV6 Upper Michigan', 3),
+    rss('https://news.google.com/rss/headlines/section/topic/ENTERTAINMENT?hl=en-US&gl=US&ceid=US:en', 2, '', 2).then(async (g) => g.length ? g : rss('https://variety.com/feed/', 2, 'Variety', 2)),
+    ...artists.map(async (a) => ({ a, news: (await rss(GN(`"${a.name}" when:3d`), 1, '', 3))[0] || null, rel: await newRelease(a.name, addDays(today, -30)),
+      tour: (await rss(GN(`"${a.name}" (tour OR concert OR "live at" OR arena OR stadium OR amphitheater) when:7d`), 3, '', 7)).find((n) => /\b(tour|concert|live|arena|stadium|amphitheat|festival|show)/i.test(n.title)) || null })),
   ]);
   if ((musicRaw as any[]).length && (musicRaw as any[]).every((m) => !m.news)) {
-    const bb = await rss('https://www.billboard.com/feed/', 40, 'Billboard');
+    const bb = await rss('https://www.billboard.com/feed/', 40, 'Billboard', 3);
     for (const m of musicRaw as any[]) m.news = bb.find((n) => n.title.toLowerCase().includes(m.a.name.toLowerCase())) || null;
   }
   const music = (musicRaw as any[]).filter((m) => m.news || m.rel).slice(0, 4);
@@ -347,24 +325,22 @@ Deno.serve(async (req) => {
   const NEAR = /michigan|detroit|grand rapids|wisconsin|milwaukee|madison|green bay|minnesota|minneapolis|chicago|little caesars|pine knob|van andel|fiserv|soldier field|wrigley/i;
   const onTour = (musicRaw as any[]).filter((m) => m.tour && m.tour.link !== m.news?.link).sort((a, b) => (NEAR.test(b.tour.title) ? 1 : 0) - (NEAR.test(a.tour.title) ? 1 : 0)).slice(0, 3);
   const [moonIco, moonName] = moon(today);
-  // Fun zone: the quiz runs every day; two more fun cards rotate through the week so each morning feels different.
+  // Fun zone: two fun cards rotate through the week so each morning feels different.
   const seed = daysBetween('2026-01-01', today);
-  const ROTATION = ['joke', 'word', 'fact', 'question', 'comic', 'countdown', 'stars'];
+  const ROTATION = ['word', 'fact', 'question', 'countdown', 'stars'];
   const slot1 = ROTATION[seed % ROTATION.length], slot2 = ROTATION[(seed + 3) % ROTATION.length];
   const want = new Set([slot1, slot2]);
-  const [fact, quiz, joke, comic, gToday, gTomorrow, gYesterday] = await Promise.all([want.has('fact') ? onThisDay(today) : null, trivia(today), want.has('joke') ? dadJoke() : '', want.has('comic') ? comicOfTheDay(today) : null, games(today), games(addDays(today, 1)), games(addDays(today, -1))]);
+  const [fact, gToday, gTomorrow, gYesterday] = await Promise.all([want.has('fact') ? onThisDay(today) : null, games(today), games(addDays(today, 1)), games(addDays(today, -1))]);
   // Game day shows whenever one of our teams plays today or tomorrow, or played yesterday. Rivalry games always lead.
   const gameLines = [...gYesterday.filter((g) => g.final).map((g) => ({ ...g, tag: 'Final' })), ...gToday.filter((g) => !g.final).map((g) => ({ ...g, tag: 'Today' })), ...gTomorrow.map((g) => ({ ...g, tag: 'Tomorrow' }))]
-    .sort((a, b) => (b.rivalry ? 1 : 0) - (a.rivalry ? 1 : 0)).slice(0, 3);
+    .sort((a, b) => (b.rivalry ? 1 : 0) - (a.rivalry ? 1 : 0)).slice(0, 4);
   const word = want.has('word') ? WORDS[seed % WORDS.length] : null;
   const question = want.has('question') ? QUESTIONS[seed % QUESTIONS.length] : '';
   const countdowns = want.has('countdown') ? [...HOLIDAYS.map(([t, m, d]) => ({ title: t, date: nextYearly(m, d) })), ...dbDates.filter((d) => d.birthday).map((d) => ({ title: d.title, date: d.date }))]
     .map((c) => ({ ...c, n: daysBetween(today, c.date) })).filter((c) => c.n > 0).sort((a, b) => a.n - b.n).slice(0, 4) : [];
-  // The answer hides behind a tap: a link to the family calendar page with the answer in the hash, shown on arrival.
-  const revealLink = quiz ? HOME + 'calendar/#answer=' + encodeURIComponent(quiz.answer) : '';
   // Fun fact: where the stars are heading (tours, concerts, sightings) from the last 3 days of news.
   const stars: string[] = Array.isArray(settings.stars) && new Set([ROTATION[daysBetween('2026-01-01', today) % ROTATION.length], ROTATION[(daysBetween('2026-01-01', today) + 3) % ROTATION.length]]).has('stars') ? settings.stars.slice(0, 3) : [];
-  const starNews = (await Promise.all(stars.map(async (n) => ({ n, it: (await rss(GN(`"${n}" (tour OR concert OR heading OR visits OR spotted OR stadium) when:3d`), 1))[0] || null })))).filter((x) => x.it);
+  const starNews = (await Promise.all(stars.map(async (n) => ({ n, it: (await rss(GN(`"${n}" (tour OR concert OR heading OR visits OR spotted OR stadium) when:3d`), 1, '', 3))[0] || null })))).filter((x) => x.it);
 
   // ---------- Lily's focus college and the top 3 ----------
   const focusCol = ((colleges.data || []) as any[]).find((c) => settings.lily_focus && c.name === settings.lily_focus && !COLLEGE_DONE.includes(c.status));
@@ -412,10 +388,12 @@ Deno.serve(async (req) => {
   const sec = (emoji: string, t: string, c: string, link?: string) => `<div style="margin:18px 0 6px;font-size:16px;font-weight:800;color:${c}">${emoji} ${link ? `<a href="${h(link)}" style="color:${c};text-decoration:none">${h(t)}</a>` : h(t)}</div>`;
   // News cards: short. Each story is one trimmed line linking to the article, plus a "More" button. Reads on light and dark backgrounds.
   const trim = (t: string, n = 56) => (t.length > n ? t.slice(0, n - 1).replace(/\s+\S*$/, '') + '…' : t);
-  const newsCard = (emoji: string, title: string, c1: string, c2: string, list: News[], more: string) => `<div style="margin:12px 0 0;background-color:${c1};background-image:linear-gradient(135deg,${c1},${c2});color:#fff;border-radius:16px;padding:14px 16px"><table role="presentation" style="border-collapse:collapse;width:100%"><tr><td style="font-size:40px;line-height:1;padding-right:12px;vertical-align:top;width:44px">${emoji}</td><td>
-    <div style="font-size:11.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;opacity:.95">${h(title)}</div>
-    ${list.slice(0, 3).map((n) => `<div style="margin:5px 0 0;font-size:15px;line-height:1.3">▸ <a href="${h(n.link)}" style="color:#fff;text-decoration:none;font-weight:600">${h(trim(n.title))}</a></div>`).join('')}
-    <a href="${h(more)}" style="display:inline-block;margin-top:9px;background:rgba(255,255,255,.22);color:#fff;font-weight:800;font-size:13px;padding:6px 12px;border-radius:999px;text-decoration:none">More →</a></td></tr></table></div>`;
+  // News cards: light background and dark text (Kevin found white-on-color headlines hard to read). Source and age under each.
+  const age = (t: number) => { if (!t) return ''; const hrs = Math.max(1, Math.round((Date.now() - t) / 3600000)); return hrs < 24 ? hrs + 'h ago' : Math.round(hrs / 24) + 'd ago'; };
+  const newsCard = (emoji: string, title: string, c1: string, _c2: string, list: News[], more: string) => `<div style="margin:12px 0 0;background:#ffffff;border:2px solid ${c1};border-left:8px solid ${c1};border-radius:16px;padding:12px 14px;color:#111827">
+    <div style="font-size:12px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;color:${c1}">${emoji} ${h(title)}</div>
+    ${list.slice(0, 3).map((n) => `<div style="margin:9px 0 0"><a href="${h(n.link)}" style="color:#111827;text-decoration:none;font-size:16.5px;font-weight:800;line-height:1.3">${h(trim(n.title))}</a>${n.source || n.date ? `<div style="font-size:13px;color:#4b5563;margin-top:1px">${h([n.source, age(n.date)].filter(Boolean).join(' · '))}</div>` : ''}</div>`).join('')}
+    <a href="${h(more)}" style="display:inline-block;margin-top:10px;color:${c1};font-weight:800;font-size:14px;text-decoration:underline;text-underline-offset:3px">More ${h(title.toLowerCase())} →</a></div>`;
   const li = (ico: string, title: string, link: string, meta: string, metaColor = '#6b7280') => `<div style="margin:0 0 5px">${ico} <a href="${h(link)}" style="color:#1f2a23;text-decoration:none;font-weight:600">${h(title)}</a> <span style="color:${metaColor};font-size:13px">${h(meta)}</span></div>`;
   const wxCard = (w: Wx | null, c1: string, c2: string) => w ? `<td style="width:33%;padding:3px;vertical-align:top"><div style="background-color:${c1};background-image:linear-gradient(135deg,${c1},${c2});color:#fff;border-radius:12px;padding:9px 10px;min-height:74px">
       <div style="font-size:12px;font-weight:700;opacity:1;line-height:1.2;min-height:29px">${h(w.name)}</div>
@@ -427,12 +405,12 @@ Deno.serve(async (req) => {
   <div style="background-color:#3b2a7a;background-image:linear-gradient(135deg,#1d3f8f,#5b2a86 50%,#a3185d);color:#fff;border-radius:14px;padding:12px 16px;margin:0 0 10px">
     <div style="font-size:20px;font-weight:800">☀️ Knaffla Brief</div><div style="font-size:13px;opacity:1">${h(wd)}, ${h(shortDate.slice(5))} · <a href="${HOME}" style="color:#ffe08a;font-weight:700;text-decoration:none">Family page →</a></div></div>
   ${intro ? `<div style="background-color:#5b21b6;background-image:linear-gradient(135deg,#1e5f99,#5b21b6 50%,#a3185d);color:#fff;border-radius:14px;padding:12px 16px;margin:0 0 10px;text-align:center"><div style="font-size:20px;font-weight:800">✨ New &amp; improved Knaffla Brief ✨</div>
-    <div style="margin-top:8px">${['🌤️ 3 weather spots', '🎯 Lily\'s focus', '🏟️ Big games', '🧠 Daily quiz', '🎶 Your music', '🗓️ What\'s coming'].map((c) => `<span style="display:inline-block;background:rgba(255,255,255,.2);border-radius:999px;padding:3px 10px;margin:0 4px 5px 0;font-size:13px;font-weight:700">${c}</span>`).join('')}</div>
+    <div style="margin-top:8px">${['🌤️ 3 weather spots', '🎯 Lily\'s focus', '🏟️ Big games', '🎶 Your music', '🗓️ What\'s coming'].map((c) => `<span style="display:inline-block;background:rgba(255,255,255,.2);border-radius:999px;padding:3px 10px;margin:0 4px 5px 0;font-size:13px;font-weight:700">${c}</span>`).join('')}</div>
     <div style="font-size:13px;margin-top:2px">Every morning at 7. Pick your music at <a href="${HOME}music/" style="color:#ffe08a;font-weight:800">kknaffla.github.io/music</a>.</div></div>` : ''}
   ${holidayToday.map((d) => `<div style="background-color:#7c2d12;background-image:linear-gradient(135deg,#3b1d6b,#b4400b);color:#fff;border-radius:14px;padding:12px 16px;margin:0 0 10px;font-size:22px;font-weight:800;text-align:center">${h(d.title.split(' ')[0])} Happy ${h(d.title.replace(/^\S+\s/, ''))}! ${h(d.title.split(' ')[0])}</div>`).join('')}
   ${bdayToday.map((b) => `<div style="background-color:#d6336c;background-image:linear-gradient(135deg,#c2255c,#b4400b 55%,#b4400b);color:#fff;border-radius:14px;padding:12px 16px;margin:0 0 10px;font-size:20px;font-weight:800;text-align:center">🎈🎂 Happy birthday, ${h(b.who)}! 🎉🎁</div>`).join('')}
   ${wxHome || wxLake || wxSecond ? `<table role="presentation" style="width:100%;border-collapse:collapse;margin:0 -3px"><tr>${wxCard(wxHome, '#0b5f73', '#1e5f99')}${wxCard(wxLake, '#1d6b45', '#2e6b30')}${wxCard(wxSecond, '#b4400b', '#b4400b')}</tr></table>
-  ${wxHome ? `<div style="margin:6px 0 0;font-size:14px">${h((WMO[wxHome.code] || ['', ''])[1])} in town${wxLake ? `, ${h((WMO[wxLake.code] || ['', ''])[1].toLowerCase())} at the lake` : ''}. 👗 <b>Wear:</b> ${h(wear(wxHome))}</div><div style="font-size:12.5px;color:#4b5563">🌅 ${ampm(wxHome.sunrise)} AM · 🌇 ${ampm(wxHome.sunset)} PM · ${moonIco} ${h(moonName)}${tripSoon && wxSecond ? ` · For ${h(tripSoon.name)}: ${h(wear(wxSecond))}` : ''}</div>` : ''}` : ''}
+  ${wxHome ? `<div style="margin:6px 0 0;font-size:14px">${h((WMO[wxHome.code] || ['', ''])[1])} in town${wxLake ? `, ${h((WMO[wxLake.code] || ['', ''])[1].toLowerCase())} at the lake` : ''}. 👗 <b>Wear:</b> ${h(wear(wxHome))}</div><table role="presentation" style="width:100%;border-collapse:collapse;margin:8px -3px 0"><tr>${[['🌅', 'Sunrise', ampm(wxHome.sunrise) + ' AM'], ['🌇', 'Sunset', ampm(wxHome.sunset) + ' PM'], [moonIco, 'Moon', moonName]].map(([i2, l, v]) => `<td style="width:33%;padding:3px;vertical-align:top"><div style="background:#fff7e6;border:1px solid #f3d9a4;border-radius:12px;padding:7px 9px;color:#3b2a0a"><div style="font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:#8a5a06">${i2} ${l}</div><div style="font-size:16px;font-weight:800;line-height:1.25">${h(v)}</div></div></td>`).join('')}</tr></table>${tripSoon && wxSecond ? `<div style="font-size:14px;margin-top:4px">🧳 For ${h(tripSoon.name)}: ${h(wear(wxSecond))}</div>` : ''}` : ''}` : ''}
   ${focusCol ? `<div style="margin:16px 0 0;background-color:#1d3f8f;background-image:linear-gradient(135deg,#00274c,#1d3f8f);color:#fff;border-radius:14px;padding:12px 16px">
     <div style="font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:#ffcb05">🎯 Lily, focus on ${h(focusName)}</div>
     <div style="font-size:19px;font-weight:800;margin:2px 0 6px">${focusDays === null ? h(focusName) + ' application' : focusDays <= 0 ? 'Due today! 🙌' : focusDays === 1 ? 'Due tomorrow' : 'Due in ' + focusDays + ' days'}${focusCol.plan && focusCol.plan !== 'Undecided' ? ` <span style="font-size:13px;opacity:.95">(${h(focusCol.plan)})</span>` : ''}</div>
@@ -456,12 +434,6 @@ Deno.serve(async (req) => {
   ${topNews.length || upNews.length ? newsCard('📰', 'Headlines', '#0b5f73', '#1e5f99', [...topNews, ...upNews], 'https://news.google.com/') : ''}
   ${entNews.length ? newsCard('🎬', 'Entertainment', '#8a1f5c', '#a52a52', entNews, 'https://news.google.com/topics/CAAqJggKIiBDQkFTRWdvSUwyMHZNREpxYW5RU0FtVnVHZ0pWVXlnQVAB') : ''}
   <!-- Fun zone: each item is its own colorful card with one big emoji and a line or two; nothing more. -->
-  ${quiz ? `<div style="margin:22px 0 0;background-color:#0b5f73;background-image:linear-gradient(135deg,#0b5f73,#0e6b55);color:#fff;border-radius:16px;padding:14px 16px"><table role="presentation" style="border-collapse:collapse"><tr><td style="font-size:40px;line-height:1;padding-right:12px;vertical-align:top">🧠</td><td>
-    <div style="font-size:11.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;opacity:.95">Daily quiz · ${h(quiz.category)}</div>
-    <div style="font-size:17px;font-weight:800;margin:3px 0 8px;line-height:1.3">${h(quiz.question)}</div>
-    <div style="font-size:14px">${quiz.choices.map((c, i) => `<span style="display:inline-block;background:rgba(255,255,255,.2);border-radius:999px;padding:4px 12px;margin:0 6px 6px 0;font-weight:600">${'ABCD'[i]}. ${h(c)}</span>`).join('')}</div>
-    <a href="${h(revealLink)}" style="display:inline-block;margin-top:4px;background:#ffe08a;color:#0b3d4a;font-weight:800;font-size:14px;padding:8px 14px;border-radius:999px;text-decoration:none">Reveal the answer →</a></td></tr></table></div>` : ''}
-  ${joke ? `<div style="margin:12px 0 0;background-color:#9c2559;background-image:linear-gradient(135deg,#8a1f5c,#a52a52);color:#fff;border-radius:16px;padding:14px 16px"><table role="presentation" style="border-collapse:collapse"><tr><td style="font-size:40px;line-height:1;padding-right:12px;vertical-align:top">😂</td><td><div style="font-size:11.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;opacity:.95">Dad joke</div><div style="font-size:16px;font-weight:700;line-height:1.35">${h(joke)}</div></td></tr></table></div>` : ''}
   ${gameLines.length ? `<div style="margin:12px 0 0;background:#eef3fb;border:2px solid #00274c;border-left:8px solid #00274c;border-radius:16px;padding:12px 14px;color:#0b1f3a">
     <div style="font-size:12px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;color:${gameLines.some((g) => g.rivalry) ? '#b42318' : '#00274c'}">${gameLines.some((g) => g.rivalry) ? '🔥 Rivalry week!' : '🏟️ Game day'}</div>
     ${gameLines.map((g) => `<table role="presentation" style="border-collapse:collapse;width:100%;margin:8px 0 0"><tr>
@@ -474,7 +446,6 @@ Deno.serve(async (req) => {
   ${onTour.length ? `<div style="margin:12px 0 0;background-color:#b4400b;background-image:linear-gradient(135deg,#b4400b,#b4400b);color:#fff;border-radius:16px;padding:14px 16px"><table role="presentation" style="border-collapse:collapse"><tr><td style="font-size:40px;line-height:1;padding-right:12px;vertical-align:top">🎤</td><td><div style="font-size:11.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;opacity:.95">On tour</div>${onTour.map((m) => `<div style="font-size:15px;margin:3px 0 0"><b>${h(m.a.name)}</b> ${NEAR.test(m.tour.title) ? '📍' : '🚌'} <a href="${h(m.tour.link)}" style="color:#fff;text-decoration:underline;text-decoration-color:rgba(255,255,255,.5)">${h(m.tour.title)}</a></div>`).join('')}</td></tr></table></div>` : ''}
   ${starNews.length ? `<div style="margin:12px 0 0;background-color:#c2255c;background-image:linear-gradient(135deg,#c2255c,#a3185d);color:#fff;border-radius:16px;padding:14px 16px"><table role="presentation" style="border-collapse:collapse"><tr><td style="font-size:40px;line-height:1;padding-right:12px;vertical-align:top">🌟</td><td><div style="font-size:11.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;opacity:.95">Where the stars are</div>${starNews.map((x) => `<div style="font-size:15px;margin:3px 0 0"><a href="${h(x.it!.link)}" style="color:#fff;text-decoration:underline;text-decoration-color:rgba(255,255,255,.5)">${h(x.it!.title)}</a></div>`).join('')}</td></tr></table></div>` : ''}
   ${music.length ? `<div style="margin:12px 0 0;background-color:#5b2a86;background-image:linear-gradient(135deg,#2b1055,#5b21b6);color:#fff;border-radius:16px;padding:14px 16px"><table role="presentation" style="border-collapse:collapse"><tr><td style="font-size:40px;line-height:1;padding-right:12px;vertical-align:top">🎶</td><td><div style="font-size:11.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;opacity:.95"><a href="${HOME}music/" style="color:#fff;text-decoration:none">Music we follow</a></div>${music.map((m) => `<div style="font-size:15px;margin:3px 0 0"><b>${h(m.a.name)}</b> <span style="opacity:.9;font-size:12px">${h(followers(m.a.id).join(', '))}</span>${m.rel ? `<br>💿 <a href="${h(m.rel.link)}" style="color:#fff;text-decoration:underline;text-decoration-color:rgba(255,255,255,.5)">New: ${h(m.rel.title)}</a>` : ''}${m.news && !onTour.some((t) => t.a.id === m.a.id && t.tour.link === m.news.link) ? `<br>🗞️ <a href="${h(m.news.link)}" style="color:#fff;text-decoration:underline;text-decoration-color:rgba(255,255,255,.5)">${h(m.news.title)}</a>` : ''}</div>`).join('')}</td></tr></table></div>` : artists.length ? '' : `<div style="margin:12px 0 0;background:#f3e8ff;border-radius:16px;padding:12px 16px;font-size:14px">🎶 <a href="${HOME}music/" style="color:#5b2a86;font-weight:800;text-decoration:none">Pick the music you follow →</a></div>`}
-  ${comic ? `<div style="margin:12px 0 0;background-color:#b4400b;background-image:linear-gradient(135deg,#b4400b,#b4400b);color:#fff;border-radius:16px;padding:14px 16px"><table role="presentation" style="border-collapse:collapse"><tr><td style="font-size:40px;line-height:1;padding-right:12px;vertical-align:top">✏️</td><td><div style="font-size:11.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;opacity:.95">Comic of the day · ${h(comic.strip)}</div><div style="font-size:17px;font-weight:800;margin:2px 0 8px">"${h(comic.title)}"</div><a href="${h(comic.link)}" style="display:inline-block;background:rgba(255,255,255,.25);color:#fff;font-weight:800;font-size:14px;padding:7px 14px;border-radius:999px;text-decoration:none">Read it →</a></td></tr></table></div>` : ''}
   ${fact ? `<div style="margin:12px 0 0;background-color:#a8640c;background-image:linear-gradient(135deg,#a8640c,#8a5a06);color:#fff;border-radius:16px;padding:14px 16px"><table role="presentation" style="border-collapse:collapse"><tr><td style="font-size:40px;line-height:1;padding-right:12px;vertical-align:top">🤓</td><td><div style="font-size:11.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;opacity:.95">On this day, ${fact.year}</div><div style="font-size:15px;font-weight:600;line-height:1.35">${h(fact.text)} <a href="${h(fact.link)}" style="color:#fff;font-weight:800;text-decoration:none">more →</a></div></td></tr></table></div>` : ''}
   ${(() => { const B: [string, string, string, string][] = [['🎓 Lily', APP, '#1d3f8f', '#1e5f99'], ['📚 Amy', HOME + 'amy/', '#8a1f5c', '#a52a52'], ['🧳 Trips', TRIPS, '#5b2a86', '#9c2559'], ['📅 Calendar', HOME + 'calendar/', '#a3361f', '#a3361f'], ['🎶 Music', HOME + 'music/', '#2b1055', '#a3185d'], ['🏡 Family', HOME, '#0b5f73', '#0e6b55']];
     return `<table role="presentation" style="width:100%;border-collapse:separate;border-spacing:6px;margin:16px -6px 0"><tr>${B.slice(0, 3).map(([t, u, c1, c2]) => `<td style="width:33%"><a href="${u}" style="display:block;text-align:center;background-color:${c1};background-image:linear-gradient(135deg,${c1},${c2});color:#fff;font-weight:800;font-size:15px;padding:14px 6px;border-radius:14px;text-decoration:none">${t}</a></td>`).join('')}</tr><tr>${B.slice(3).map(([t, u, c1, c2]) => `<td style="width:33%"><a href="${u}" style="display:block;text-align:center;background-color:${c1};background-image:linear-gradient(135deg,${c1},${c2});color:#fff;font-weight:800;font-size:15px;padding:14px 6px;border-radius:14px;text-decoration:none">${t}</a></td>`).join('')}</tr></table>`; })()}
@@ -482,7 +453,7 @@ Deno.serve(async (req) => {
 
   const text = [`KNAFFLA BRIEF, ${wd}, ${shortDate.slice(5)}  ${HOME}`,
     ...bdayToday.map((b) => `HAPPY BIRTHDAY, ${b.who.toUpperCase()}!`),
-    intro ? 'NEW & IMPROVED KNAFFLA BRIEF: 3 weather spots, Lily\'s focus, big games, a daily quiz, your music and what\'s coming. Every morning at 7. Pick your music at ' + HOME + 'music/' : '',
+    intro ? 'NEW & IMPROVED KNAFFLA BRIEF: 3 weather spots, Lily\'s focus, big games, your music and what\'s coming. Every morning at 7. Pick your music at ' + HOME + 'music/' : '',
     ...holidayToday.map((d) => `HAPPY ${d.title.replace(/^\S+\s/, '').toUpperCase()}!`),
     wxHome ? `\nWEATHER: Manistique ${wxHome.now}° ${(WMO[wxHome.code] || ['', ''])[1]}, ${wxHome.hi}°/${wxHome.lo}°. Wear: ${wear(wxHome)}` : '',
     wxLake ? `Crooked Lake ${wxLake.now}° ${(WMO[wxLake.code] || ['', ''])[1]}, ${wxLake.hi}°/${wxLake.lo}°` : '',
@@ -496,16 +467,13 @@ Deno.serve(async (req) => {
     onTour.length ? '\nON TOUR\n' + onTour.map((m) => `- ${m.a.name}: ${m.tour.title} ${m.tour.link}`).join('\n') : '',
     starNews.length ? '\nWHERE THE STARS ARE\n' + starNews.map((x) => `- ${x.it!.title} ${x.it!.link}`).join('\n') : '',
     music.length ? '\nMUSIC\n' + music.map((m) => `- ${m.a.name}: ${m.rel ? 'New: ' + m.rel.title + '. ' : ''}${m.news ? m.news.title : ''}`).join('\n') : '',
-    quiz ? `\nDAILY QUIZ (${quiz.category}): ${quiz.question}\n` + quiz.choices.map((c, i) => `  ${'ABCD'[i]}. ${c}`).join('\n') + `\n  Answer: ${revealLink}` : '',
-    joke ? `\nDAD JOKE: ${joke}` : '',
     gameLines.length ? '\nGAME DAY\n' + gameLines.map((g) => `- ${g.label}: ${g.tag} ${g.detail}${g.tv && !g.final ? ' on ' + g.tv : ''}`).join('\n') : '',
     word ? `\nWORD OF THE DAY: ${word[0]} (${word[1]}): ${word[2]}` : '',
     question ? `\nDINNER TABLE QUESTION: ${question}` : '',
     countdowns.length ? '\nCOUNTDOWNS: ' + countdowns.map((c) => `${c.title} ${c.n}d`).join(', ') : '',
-    comic ? `\nCOMIC OF THE DAY (${comic.strip}): ${comic.title} ${comic.link}` : '',
     songOfDay ? `\nSONG OF THE DAY: ${songOfDay.track} by ${songOfDay.artist} (30-second preview) ${songOfDay.url}${songOfDay.full ? ' · Full song: ' + songOfDay.full : ''}` : '',
     `\nTHEME: ${theme.theme_name}${themeItem ? ' · ' + (themeItem.kind === 'quote' ? '"' + themeItem.text + '"' : themeItem.text) + (themeItem.by ? ' (' + themeItem.by + ')' : '') + (themeSong ? ' Play: ' + themeSong.track + ' ' + themeSong.url : directAudio(themeItem.audio) ? ' Play: ' + themeItem.audio : '') + (themeItem.link ? ' ' + themeItem.link : '') : ''}`,
-    `\nMOON: ${moonName}`,
+    wxHome ? `\nSUN: up ${ampm(wxHome.sunrise)} AM, down ${ampm(wxHome.sunset)} PM. MOON: ${moonName}` : `\nMOON: ${moonName}`,
     fact ? `\nON THIS DAY, ${fact.year}: ${fact.text} ${fact.link}` : '',
     '\n' + signoff].filter((x) => x !== '').join('\n');
   const subject = `☀️ Knaffla Brief, ${nice(today)}: ${intro ? '✨ New & improved! · ' : ''}${holidayToday.length ? 'Happy ' + holidayToday[0].title.replace(/^\S+\s/, '') + '! ' + holidayToday[0].title.split(' ')[0] + ' · ' : ''}${bdayToday.length ? '🎂 Happy birthday, ' + bdayToday.map((b) => b.who).join(' and ') + '! · ' : ''}${focusCol && focusDays !== null && focusDays <= 7 ? `${focusName} ${focusDays <= 0 ? 'due today' : 'in ' + focusDays + ' days'} · ` : ''}${wxHome ? `${(WMO[wxHome.code] || ['🌡️'])[0]} ${wxHome.hi}°` : ''}`.slice(0, 120);
@@ -519,6 +487,6 @@ Deno.serve(async (req) => {
     return reply('Send failed: ' + (e as Error).message, 502);
   }
   if (!test) await sb.from('daily_brief').update({ last_sent_on: today }).eq('id', 1);
-  const report = `news ${topNews.length}, upnorth ${upNews.length}, ent ${entNews.length}, music ${music.length}, tour ${onTour.length}, stars ${starNews.length}, games ${gameLines.length}, quiz ${quiz ? 1 : 0}, wx ${[wxHome, wxLake, wxSecond].filter(Boolean).length}/3 | ` + Object.entries(SRC).map(([k, v]) => `${k}:${v}`).join(' ');
+  const report = `news ${topNews.length}, upnorth ${upNews.length}, ent ${entNews.length}, music ${music.length}, tour ${onTour.length}, stars ${starNews.length}, games ${gameLines.length}, wx ${[wxHome, wxLake, wxSecond].filter(Boolean).length}/3 | ` + Object.entries(SRC).map(([k, v]) => `${k}:${v}`).join(' ');
   return reply(`Sent to ${to.length} ${test ? '(test)' : ''}: ${subject}${test ? ' || ' + report : ''}`);
 });
